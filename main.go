@@ -149,6 +149,14 @@ func build() {
 	conf := loadConfig()
 	cwd, _ := os.Getwd()
 
+	unsafeFlag := false
+	for _, arg := range os.Args {
+		if arg == "--unsafe" {
+			unsafeFlag = true
+			break
+		}
+	}
+
 	fmt.Printf("[gios] Project: %s\n", conf.Name)
 	fmt.Printf("[gios] Arch: %s, SDK: %s\n", conf.Arch, conf.SDKVersion)
 
@@ -188,13 +196,6 @@ func build() {
 		
 		// Gios Legacy Code Transpiler (Modern -> 1.14)
 		fmt.Println("[gios] Legacy 32-bit Target Detected.")
-		unsafeFlag := false
-		for _, arg := range os.Args {
-			if arg == "--unsafe" {
-				unsafeFlag = true
-				break
-			}
-		}
 
 		if unsafeFlag {
 			fmt.Println("[gios] [Transpiler] WARNING: --unsafe flag active. Transpiling 'vendor' third-party dependencies.")
@@ -216,8 +217,14 @@ func build() {
 
 	cmd := exec.Command(goBin, "build", "-o", conf.Output, conf.Main)
 	cmd.Dir = cwd
+	
+	cgoState := "1"
+	if conf.Arch == "armv7" && unsafeFlag {
+		cgoState = "0"
+	}
+
 	cmdEnv := append(os.Environ(),
-		"CGO_ENABLED=1",
+		"CGO_ENABLED="+cgoState,
 		"GOOS="+envOS,
 		"GOARCH="+envArch,
 	)
