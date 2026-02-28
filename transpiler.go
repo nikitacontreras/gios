@@ -166,7 +166,7 @@ func TranspileLegacy(projectDir string, unsafe bool) error {
 		ast.Inspect(node, func(n ast.Node) bool {
 			if ident, ok := n.(*ast.Ident); ok {
 				if ident.Name == "any" {
-					ident.Name = "interface{}"
+					ident.Name = "__GIOS_ANY__"
 					modified = true
 				}
 			}
@@ -177,8 +177,14 @@ func TranspileLegacy(projectDir string, unsafe bool) error {
 		if modified {
 			var buf bytes.Buffer
 			if err := format.Node(&buf, fset, node); err == nil {
-				ioutil.WriteFile(path, buf.Bytes(), info.Mode())
-				transpiledCount++
+				finalCode := bytes.ReplaceAll(buf.Bytes(), []byte("__GIOS_ANY__"), []byte("interface{}"))
+				if writeErr := ioutil.WriteFile(path, finalCode, info.Mode()); writeErr != nil {
+					fmt.Printf("[!] Transpiler failed to write %s: %v\n", path, writeErr)
+				} else {
+					transpiledCount++
+				}
+			} else {
+				fmt.Printf("[!] Transpiler failed to format %s: %v\n", path, err)
 			}
 		}
 
