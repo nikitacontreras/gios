@@ -34,39 +34,8 @@ jobs:
 
       - name: Build Binaries and Generate Manifest
         run: |
-          mkdir -p build
-          
-          echo "version: ${{ steps.version.outputs.VERSION }}" > build/release.yml
-          echo "binaries:" >> build/release.yml
-          
-          build_binary() {
-            local os=$1
-            local arch=$2
-            local ext=$3
-            local name="gios-${os}-${arch}${ext}"
-            
-            echo "Building $name..."
-            GOOS=$os GOARCH=$arch go build -o "build/$name" main.go
-            
-            local hash=$(sha256sum "build/$name" | awk '{print $1}')
-            
-            echo "  - os: $os" >> build/release.yml
-            echo "    arch: $arch" >> build/release.yml
-            echo "    executable: $name" >> build/release.yml
-            echo "    sha256: $hash" >> build/release.yml
-          }
-          
-          # Linux
-          build_binary linux amd64 ""
-          build_binary linux arm64 ""
-          
-          # macOS
-          build_binary darwin amd64 ""
-          build_binary darwin arm64 ""
-          
-          # Windows
-          build_binary windows amd64 ".exe"
-          build_binary windows arm64 ".exe"
+          make build-all
+          make release-manifest
 
       - name: Create Release
         uses: softprops/action-gh-release@v1

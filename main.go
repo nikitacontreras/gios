@@ -14,7 +14,10 @@ import (
 	"strings"
 )
 
-const AppVersion = "v1.2.0"
+var (
+	AppVersion = "v1.2.0"
+	BuildTime  = "unknown"
+)
 
 type Config struct {
 	Name         string `json:"name"`
@@ -46,14 +49,14 @@ func init() {
 
 func main() {
 	if len(os.Args) == 2 && (os.Args[1] == "-v" || os.Args[1] == "--version") {
-		fmt.Printf("Gios CLI version %s\n", AppVersion)
+		fmt.Printf("GIOS CLI version %s (Built: %s)\n", AppVersion, BuildTime)
 		return
 	}
 
 	if len(os.Args) < 2 {
-		fmt.Println("Gios - The modern build system for legacy & modern iOS")
+		fmt.Println("GIOS - The modern build system for legacy & modern iOS")
 		fmt.Println("======================================================")
-		fmt.Printf("Version: %s\n\n", AppVersion)
+		fmt.Printf("Version: %s (Built: %s)\n\n", AppVersion, BuildTime)
 		fmt.Println("Usage: gios <command>")
 		fmt.Println("\nAvailable commands:")
 		fmt.Println("  init    - Initializes a new project (Interactive Setup)")
@@ -119,7 +122,7 @@ func ensureWrapper(sdkPath string) string {
 	}
 
 	wrapperPath := filepath.Join(giosDir, "arm-clang.sh")
-	
+
 	content := `#!/bin/bash
 if [ -z "$GIOS_SDK_PATH" ]; then
     echo "GIOS_SDK_PATH is not configured."
@@ -143,7 +146,7 @@ exec clang -target armv7-apple-ios5.0 \
 func build() {
 	conf := loadConfig()
 	cwd, _ := os.Getwd()
-	
+
 	fmt.Printf("[gios] Project: %s\n", conf.Name)
 	fmt.Printf("[gios] Arch: %s, SDK: %s\n", conf.Arch, conf.SDKVersion)
 
@@ -248,15 +251,15 @@ func run() {
 
 	fmt.Printf("[gios] Sending to %s...\n", conf.Deploy.IP)
 	dest := fmt.Sprintf("root@%s:%s", conf.Deploy.IP, conf.Deploy.Path)
-	
+
 	sshKey := filepath.Join(giosDir, "id_rsa")
-	
+
 	cmd := exec.Command("scp",
 		"-i", sshKey,
 		"-o", "ControlMaster=auto",
 		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
 		conf.Output, dest)
-	
+
 	if err := cmd.Run(); err != nil {
 		fmt.Println("[gios] Error uploading file via SCP.")
 		return
@@ -271,19 +274,19 @@ func run() {
 
 		fmt.Printf("[gios] Executing %s on device...\n", runPath)
 		fmt.Println("--------------------------------------------------")
-		
+
 		sshCmd := exec.Command("ssh",
 			"-i", sshKey,
 			"-o", "ControlMaster=auto",
 			"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
 			"-t", "root@"+conf.Deploy.IP,
 			fmt.Sprintf("chmod +x %s && %s", runPath, runPath))
-			
+
 		sshCmd.Stdin = os.Stdin
 		sshCmd.Stdout = os.Stdout
 		sshCmd.Stderr = os.Stderr
 		sshCmd.Run()
-		
+
 		fmt.Println("\n--------------------------------------------------")
 	} else {
 		fmt.Println("[gios] OK!")
@@ -305,7 +308,7 @@ func createDeb() {
 
 	stage := "deb_stage"
 	os.RemoveAll(stage)
-	
+
 	// Check if modern or legacy
 	var binPath string
 	var debArch string
@@ -340,12 +343,12 @@ func createDeb() {
 		} else {
 			daemonDir = filepath.Join(stage, "Library", "LaunchDaemons")
 		}
-		
+
 		os.MkdirAll(daemonDir, 0755)
 
 		plistName := fmt.Sprintf("%s.plist", pkgID)
 		plistPath := filepath.Join(daemonDir, plistName)
-		
+
 		plistOutputTarget := fmt.Sprintf("/usr/bin/%s", conf.Output)
 		if conf.Arch == "arm64" {
 			plistOutputTarget = fmt.Sprintf("/var/jb/usr/bin/%s", conf.Output)
@@ -369,7 +372,7 @@ func createDeb() {
 </plist>`, pkgID, plistOutputTarget)
 
 		ioutil.WriteFile(plistPath, []byte(plistContent), 0644)
-		
+
 		var daemonLoadPath = fmt.Sprintf("/Library/LaunchDaemons/%s", plistName)
 		if conf.Arch == "arm64" {
 			daemonLoadPath = fmt.Sprintf("/var/jb/Library/LaunchDaemons/%s", plistName)
@@ -432,13 +435,13 @@ func installDeb() {
 
 	fmt.Printf("[gios] Installing on %s...\n", conf.Deploy.IP)
 	dest := fmt.Sprintf("root@%s:/tmp/%s", conf.Deploy.IP, debName)
-	
+
 	sshKey := filepath.Join(giosDir, "id_rsa")
-	
-	err := exec.Command("scp", 
+
+	err := exec.Command("scp",
 		"-i", sshKey,
-		"-o", "ControlMaster=auto", 
-		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p", 
+		"-o", "ControlMaster=auto",
+		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
 		debName, dest).Run()
 	if err != nil {
 		fmt.Println("[!] Error uploading the .deb to the device (SCP)")
@@ -446,17 +449,17 @@ func installDeb() {
 	}
 
 	fmt.Println("[gios] Running DPKG on the iDevice...")
-	
+
 	dpkgCmd := "dpkg"
 	if conf.Arch == "arm64" {
-		dpkgCmd = "dpkg" 
+		dpkgCmd = "dpkg"
 	}
-	
+
 	sshInstall := fmt.Sprintf("%s -i /tmp/%s && rm -f /tmp/%s", dpkgCmd, debName, debName)
-	out, err := exec.Command("ssh", 
+	out, err := exec.Command("ssh",
 		"-i", sshKey,
-		"-o", "ControlMaster=auto", 
-		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p", 
+		"-o", "ControlMaster=auto",
+		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
 		"root@"+conf.Deploy.IP, sshInstall).CombinedOutput()
 	if err != nil {
 		fmt.Printf("[!] Installation failed (DPKG):\n%s\n", string(out))
@@ -473,10 +476,10 @@ func prompt(msg string, defaultVal string) string {
 	} else {
 		fmt.Printf("%s: ", msg)
 	}
-	
+
 	input, _ := reader.ReadString('\n')
 	input = strings.TrimSpace(input)
-	
+
 	if input == "" {
 		return defaultVal
 	}
@@ -497,7 +500,7 @@ func connect() {
 	}
 
 	fmt.Printf("[gios] Setting up background SSH connection to %s...\n", ip)
-	
+
 	sshKeyPath := filepath.Join(giosDir, "id_rsa")
 	if _, err := os.Stat(sshKeyPath); os.IsNotExist(err) {
 		fmt.Println("[gios] Generating new SSH key for passwordless auth...")
@@ -528,9 +531,9 @@ func connect() {
 		fmt.Printf("[gios] Device Info: %s | %s | iOS %s\n", name, arch, ver)
 		saveDeviceData(ip, name, arch, ver)
 	}
-	
+
 	os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".ssh"), 0700)
-	
+
 	// Close any previous dangling socket to avoid "socket already exists" error
 	exec.Command("ssh", "-O", "exit", "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", "root@"+ip).Run()
 
@@ -541,7 +544,7 @@ func connect() {
 		"-o", "ServerAliveInterval=60",
 		"-i", sshKeyPath,
 		"root@"+ip)
-		
+
 	if err := cmd.Run(); err != nil {
 		fmt.Println("[!] Failed to establish background connection.")
 	} else {
@@ -569,7 +572,7 @@ func disconnect() {
 	}
 
 	fmt.Printf("[gios] Closing connection to %s...\n", ip)
-	
+
 	cmd := exec.Command("ssh", "-O", "exit", "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", "root@"+ip)
 	err := cmd.Run()
 	if err != nil {
@@ -610,7 +613,7 @@ func saveDeviceData(ip, name, arch, version string) {
 
 func updateGios() {
 	fmt.Println("[gios] Checking for updates...")
-	
+
 	// API de GitHub para listar todos los releases (incluyendo pre-releases como "latest")
 	req, err := http.NewRequest("GET", "https://api.github.com/repos/nikitacontreras/gios/releases", nil)
 	if err != nil {
@@ -619,7 +622,7 @@ func updateGios() {
 	}
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	
+
 	if err != nil || resp.StatusCode == http.StatusNotFound {
 		fmt.Println("[gios] No pending updates found.")
 		return
@@ -676,7 +679,7 @@ func updateGios() {
 	}
 
 	fmt.Printf("[gios] Downloading binary for %s/%s...\n", osName, archName)
-	
+
 	res, err := http.Get(downloadUrl)
 	if err != nil {
 		fmt.Println("[!] Download failed:", err)
@@ -696,7 +699,7 @@ func updateGios() {
 		fmt.Println("[!] Error creating tmp file:", err)
 		return
 	}
-	
+
 	_, err = io.Copy(out, res.Body)
 	out.Close()
 	if err != nil {
@@ -712,7 +715,7 @@ func updateGios() {
 		fmt.Println("[!] Error overwriting old binary. You might need to run this command with 'sudo'. Error:", err)
 		return
 	}
-	
+
 	fmt.Printf("[+] Success! Gios updated to %s\n", release.TagName)
 }
 
@@ -827,7 +830,7 @@ func addSDK() {
 	choiceStr := prompt("\nEnter number", "")
 	var choice int
 	fmt.Sscanf(choiceStr, "%d", &choice)
-	
+
 	if choice < 1 || choice > len(validAssets) {
 		fmt.Println("[!] Invalid selection.")
 		return
@@ -836,7 +839,7 @@ func addSDK() {
 	selected := validAssets[choice-1]
 	sdkName := strings.TrimSuffix(strings.TrimSuffix(selected.Name, ".tar.xz"), ".tar.gz")
 	targetPath := filepath.Join(giosDir, "sdks", sdkName)
-	
+
 	if _, err := os.Stat(targetPath); err == nil {
 		fmt.Printf("[gios] SDK %s is already installed.\n", sdkName)
 		return
@@ -862,7 +865,7 @@ func removeSDK() {
 	choiceStr := prompt("\nEnter number to remove", "")
 	var choice int
 	fmt.Sscanf(choiceStr, "%d", &choice)
-	
+
 	if choice < 1 || choice > len(downloaded) {
 		fmt.Println("[!] Invalid selection.")
 		return
@@ -877,25 +880,25 @@ func removeSDK() {
 func ensureSDKFromURL(version, targetPath, customUrl string) error {
 	sdkDir := filepath.Dir(targetPath)
 	os.MkdirAll(sdkDir, 0755)
-	
+
 	fmt.Printf("[gios] Downloading iOS %s SDK...\n", version)
-	
+
 	fileName := filepath.Base(customUrl)
 	tarPath := filepath.Join(sdkDir, fileName)
-	
+
 	cmd := exec.Command("curl", "-L", "-#", "-o", tarPath, customUrl)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("curl failed: %v", err)
 	}
-	
+
 	fmt.Println("[gios] Extracting SDK (this might take a few seconds)...")
 	cmdExt := exec.Command("tar", "-xf", tarPath, "-C", sdkDir)
 	if err := cmdExt.Run(); err != nil {
 		return fmt.Errorf("tar extraction failed: %v", err)
 	}
-	
+
 	os.Remove(tarPath)
 	fmt.Println("[+] SDK ready for cross-compilation!")
 	return nil
@@ -904,10 +907,10 @@ func ensureSDKFromURL(version, targetPath, customUrl string) error {
 func initProject() {
 	cwd, _ := os.Getwd()
 	baseName := filepath.Base(cwd)
-	
+
 	fmt.Println("\n=============================================")
 	fmt.Println("    GIOS Interactive Project Initialization  ")
-	fmt.Println("=============================================\n")
+	fmt.Println("=============================================")
 
 	// Questions
 	conf := Config{}
@@ -920,9 +923,9 @@ func initProject() {
 	fmt.Println("\n4. Target Device Architecture:")
 	fmt.Println("   [1] Legacy 32-bit (iPhone 2G to 5c, iPad 1 to 4)")
 	fmt.Println("   [2] Modern 64-bit Rootless (iPhone 5s to 16, iPad Air/Pro)")
-	
+
 	targetOption := prompt("   Option", "1")
-	
+
 	isModern := false
 	if targetOption == "2" {
 		isModern = true
@@ -946,7 +949,7 @@ func initProject() {
 	}
 
 	conf.Deploy.IP = prompt("\n6. Target Device IP Address (optional)", "192.168.1.XX")
-	
+
 	if conf.Arch == "arm64" {
 		conf.Deploy.Path = "/var/jb/var/root"
 	} else {
@@ -954,7 +957,7 @@ func initProject() {
 	}
 
 	fmt.Println("\n=============================================")
-	
+
 	if _, err := os.Stat("go.mod"); os.IsNotExist(err) {
 		fmt.Println("[+] Initializing Go modules...")
 		modGoVer := "1.14"
