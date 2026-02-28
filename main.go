@@ -113,7 +113,42 @@ func loadConfig() Config {
 	}
 	var conf Config
 	json.Unmarshal(data, &conf)
+
+	// Defaults logic
+	if conf.Output == "" {
+		if conf.Name != "" {
+			conf.Output = conf.Name
+		} else {
+			conf.Output = "out_bin"
+		}
+	}
+
+	// Override with --out flag if present
+	if outFlag := getFlagValue("--out"); outFlag != "" {
+		// If it's a path, use the base for local file and full for deploy
+		if strings.Contains(outFlag, "/") {
+			conf.Output = filepath.Base(outFlag)
+			conf.Deploy.Path = outFlag
+		} else {
+			conf.Output = outFlag
+			// For simple name, we update the filename part of the deploy path if it exists
+			if conf.Deploy.Path != "" {
+				dir := filepath.Dir(conf.Deploy.Path)
+				conf.Deploy.Path = filepath.Join(dir, outFlag)
+			}
+		}
+	}
+
 	return conf
+}
+
+func getFlagValue(flagName string) string {
+	for i, arg := range os.Args {
+		if arg == flagName && i+1 < len(os.Args) {
+			return os.Args[i+1]
+		}
+	}
+	return ""
 }
 
 func ensureWrapper(sdkPath string) string {
@@ -130,11 +165,12 @@ if [ -z "$GIOS_SDK_PATH" ]; then
     echo "GIOS_SDK_PATH is not configured."
     exit 1
 fi
-exec clang -target armv7-apple-ios5.0 \
+exec clang -target armv7-apple-ios5.0 -marm -march=armv7-a -mfpu=vfpv3-d16 \
      -isysroot "$GIOS_SDK_PATH" \
      -Wno-unused-command-line-argument \
      -Wno-incompatible-sysroot \
      -Wno-error=incompatible-sysroot \
+     -fno-asynchronous-unwind-tables \
      "$@"
 `
 	err = ioutil.WriteFile(wrapperPath, []byte(content), 0755)
@@ -142,7 +178,77 @@ exec clang -target armv7-apple-ios5.0 \
 		fmt.Printf("Error writing wrapper: %v\n", err)
 		os.Exit(1)
 	}
-	return wrapperPath
+	    return wrapperPath
+}
+
+func ensureShims(sdkPath, wrapperPath string) string {
+	libDir := filepath.Join(giosDir, "lib")
+	os.MkdirAll(libDir, 0755)
+	
+
+	shimC := filepath.Join(libDir, "shims.c")
+	shimO := filepath.Join(libDir, "shims.o")
+	shimA := filepath.Join(libDir, "libgios_libc.a")
+
+	content := `#include <stddef.h>
+
+void *memmove(void *dest, const void *src, size_t n) {
+    unsigned char *d = (unsigned char *)dest;
+    const unsigned char *s = (const unsigned char *)src;
+    if (d < s) {
+        while (n--) *d++ = *s++;
+    } else {
+        d += n; s += n;
+        while (n--) *--d = *--s;
+    }
+    return dest;
+}
+
+void *memcpy(void *dest, const void *src, size_t n) {
+    return memmove(dest, src, n);
+}
+
+void *memset(void *s, int c, size_t n) {
+    unsigned char *p = (unsigned char *)s;
+    while (n--) *p++ = (unsigned char)c;
+    return s;
+}
+
+int memcmp(const void *s1, const void *s2, size_t n) {
+    const unsigned char *p1 = (const unsigned char *)s1;
+    const unsigned char *p2 = (const unsigned char *)s2;
+    while (n--) {
+        if (*p1 != *p2) return (int)(*p1 - *p2);
+        p1++; p2++;
+    }
+    return 0;
+}
+
+void memset_pattern16(void *b, const void *pattern16, size_t len) {
+    unsigned char *dest = (unsigned char *)b;
+    const unsigned char *pat = (const unsigned char *)pattern16;
+    while (len >= 16) {
+        for(int i=0; i<16; i++) dest[i] = pat[i];
+        dest += 16; len -= 16;
+    }
+    for(size_t i=0; i<len; i++) dest[i] = pat[i];
+}
+
+void *__memcpy_chk(void *dest, const void *src, size_t len, size_t destlen) { return memcpy(dest, src, len); }
+void *__memset_chk(void *dest, int c, size_t len, size_t destlen) { return memset(dest, c, len); }
+void *__memmove_chk(void *dest, const void *src, size_t len, size_t destlen) { return memmove(dest, src, len); }
+`
+	ioutil.WriteFile(shimC, []byte(content), 0644)
+	
+	// Compile shims (force ARM mode to match Go runtime expectations)
+	cmd := exec.Command(wrapperPath, "-Os", "-c", shimC, "-o", shimO)
+	cmd.Env = append(os.Environ(), "GIOS_SDK_PATH="+sdkPath)
+	cmd.Run()
+	
+	// Create archive
+	exec.Command("ar", "rcs", shimA, shimO).Run()
+	
+	return libDir
 }
 
 func build() {
@@ -153,7 +259,6 @@ func build() {
 	for _, arg := range os.Args {
 		if arg == "--unsafe" {
 			unsafeFlag = true
-			break
 		}
 	}
 
@@ -215,19 +320,32 @@ func build() {
 		sdkPath = ""
 	}
 
-	cmd := exec.Command(goBin, "build", "-o", conf.Output, conf.Main)
-	cmd.Dir = cwd
-	
 	cgoState := "1"
-	if conf.Arch == "armv7" && unsafeFlag {
-		cgoState = "0"
+	var giosLibDir string
+	if conf.Arch == "armv7" {
+		giosLibDir = ensureShims(sdkPath, cc)
 	}
+
+	var ldflags string
+	if conf.Arch == "armv7" {
+		ldflags = fmt.Sprintf("-s -w -extld=%s \"-extldflags=-L%s -lgios_libc\"", cc, giosLibDir)
+	} else {
+		ldflags = "-s -w"
+	}
+
+	cmd := exec.Command(goBin, "build", "-trimpath", "-ldflags="+ldflags, "-o", conf.Output, conf.Main)
+	cmd.Dir = cwd
 
 	cmdEnv := append(os.Environ(),
 		"CGO_ENABLED="+cgoState,
 		"GOOS="+envOS,
 		"GOARCH="+envArch,
 	)
+	
+	if conf.Arch == "armv7" {
+		// Aggressive shimming through macros and static lib
+		cmdEnv = append(cmdEnv, "CGO_LDFLAGS=-L"+giosLibDir+" -lgios_libc")
+	}
 	if envArm != "" {
 		cmdEnv = append(cmdEnv, "GOARM="+envArm)
 	}
@@ -273,8 +391,11 @@ func run() {
 	}
 
 	watch := false
-	if len(os.Args) >= 3 && os.Args[2] == "--watch" {
-		watch = true
+	for _, arg := range os.Args {
+		if arg == "--watch" {
+			watch = true
+			break
+		}
 	}
 
 	fmt.Printf("[gios] Sending to %s...\n", conf.Deploy.IP)
@@ -295,9 +416,12 @@ func run() {
 
 	if watch {
 		runPath := conf.Deploy.Path
-		// Fix path if it's considered a directory
-		if conf.Arch == "arm64" || strings.HasSuffix(runPath, "/") {
-			runPath = filepath.Join(runPath, conf.Output)
+		outputBase := filepath.Base(conf.Output)
+		deployBase := filepath.Base(runPath)
+
+		// Only join if it's clearly a directory path or doesn't already end with the output name
+		if (strings.HasSuffix(runPath, "/") || !strings.Contains(deployBase, ".")) && deployBase != outputBase {
+			runPath = filepath.Join(runPath, outputBase)
 		}
 
 		fmt.Printf("[gios] Executing %s on device...\n", runPath)
@@ -308,7 +432,7 @@ func run() {
 			"-o", "ControlMaster=auto",
 			"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
 			"-t", "root@"+conf.Deploy.IP,
-			fmt.Sprintf("chmod +x %s && %s", runPath, runPath))
+			fmt.Sprintf("chmod +x %s && env GOGC=20 GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1 %s", runPath, runPath))
 
 		sshCmd.Stdin = os.Stdin
 		sshCmd.Stdout = os.Stdout

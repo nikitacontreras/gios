@@ -14,7 +14,6 @@ import (
 	"strings"
 )
 
-// The polyfills string constants (Shims for missing Go 1.18+ libraries)
 const (
 	ioFsPolyfill = `package fs
 import "os"
@@ -33,12 +32,13 @@ func ContainsString(s []string, e string) bool {
 `
 )
 
-// generatePolyfills creates local shim packages to replace missing standard libraries.
-func generatePolyfills(projectDir string) (string, error) {
-	polyfillDir := filepath.Join(projectDir, ".gios_polyfills")
+func generatePolyfills() (string, error) {
+	polyfillDir := filepath.Join(giosDir, "polyfills")
 	os.MkdirAll(polyfillDir, 0755)
 
-	// Create explicit shims
+	modContent := "module gios/polyfills\n\ngo 1.14\n"
+	ioutil.WriteFile(filepath.Join(polyfillDir, "go.mod"), []byte(modContent), 0644)
+
 	fsDir := filepath.Join(polyfillDir, "io_fs")
 	os.MkdirAll(fsDir, 0755)
 	ioutil.WriteFile(filepath.Join(fsDir, "fs.go"), []byte(ioFsPolyfill), 0644)
@@ -47,7 +47,6 @@ func generatePolyfills(projectDir string) (string, error) {
 	os.MkdirAll(slicesDir, 0755)
 	ioutil.WriteFile(filepath.Join(slicesDir, "slices.go"), []byte(slicesPolyfill), 0644)
 
-	// Create dynamic empty shims for the rest
 	missing := []string{
 		"cmp", "crypto_ecdh", "crypto_mlkem", "crypto_pbkdf2", 
 		"crypto_tls_fipsonly", "embed", "iter", "log_slog", 
@@ -65,16 +64,21 @@ func generatePolyfills(projectDir string) (string, error) {
 	return polyfillDir, nil
 }
 
-// TranspileLegacy modifies Go 1.18+ source code into Go 1.14 compatible code.
 func TranspileLegacy(projectDir string, unsafe bool) error {
 	fmt.Println("[gios] [Transpiler] Starting automated backport to Go 1.14...")
 
-	// 1. Downgrade go.mod and get Module Name
+	os.RemoveAll(filepath.Join(projectDir, ".gios_polyfills"))
+
 	modPath := filepath.Join(projectDir, "go.mod")
 	var moduleName string
 	if _, err := os.Stat(modPath); err == nil {
 		content, _ := ioutil.ReadFile(modPath)
 		lines := strings.Split(string(content), "\n")
+		
+		polyfillDir := filepath.Join(giosDir, "polyfills")
+		replaceRule := fmt.Sprintf("replace gios/polyfills => %s", polyfillDir)
+		foundReplace := false
+
 		for i, line := range lines {
 			if strings.HasPrefix(line, "module ") {
 				moduleName = strings.TrimSpace(strings.TrimPrefix(line, "module "))
@@ -84,25 +88,32 @@ func TranspileLegacy(projectDir string, unsafe bool) error {
 			} else if strings.HasPrefix(line, "toolchain ") {
 				lines[i] = "// " + line // comment out toolchain
 			}
+			if strings.HasPrefix(line, "replace gios/polyfills") {
+				lines[i] = replaceRule
+				foundReplace = true
+			}
 		}
+		
+		if !foundReplace {
+			lines = append(lines, "", "require gios/polyfills v0.0.0", replaceRule)
+		}
+
 		ioutil.WriteFile(modPath, []byte(strings.Join(lines, "\n")), 0644)
-		fmt.Println("[gios] [Transpiler] Downgraded go.mod to Go 1.14")
+		fmt.Println("[gios] [Transpiler] Downgraded go.mod and injected polyfill replace rules")
 	}
 
 	if moduleName == "" {
-		fmt.Println("[!] [Transpiler] Warning: Could not detect module name in go.mod. Polyfill imports might fail.")
-		moduleName = "github.com/unknown/module"
+		fmt.Println("[!] [Transpiler] Warning: Could not detect module name in go.mod. Standard imports might fail.")
+		moduleName = "example"
 	}
 
-	// 2. Generate Polyfills inside the target project
-	fmt.Println("[gios] [Transpiler] Generating polyfills for future standard libraries...")
-	_, err := generatePolyfills(projectDir)
+	fmt.Println("[gios] [Transpiler] Ensuring global polyfills for future standard libraries...")
+	_, err := generatePolyfills()
 	if err != nil {
 		return err
 	}
-	polyfillBaseImport := moduleName + "/.gios_polyfills"
+	polyfillBaseImport := "gios/polyfills"
 
-	// 3. Transpile all .go files in the directory (and subdirectories EXCEPT vendor by default)
 	fset := token.NewFileSet()
 	var transpiledCount int
 
@@ -111,11 +122,10 @@ func TranspileLegacy(projectDir string, unsafe bool) error {
 			return err
 		}
 		if info.IsDir() {
-			// Skip the polyfills directory itself so we don't transpile our own shims
 			if info.Name() == ".gios_polyfills" || info.Name() == ".git" {
 				return filepath.SkipDir
 			}
-			// Skip vendor directory unless --unsafe was passed
+
 			if !unsafe && info.Name() == "vendor" {
 				return filepath.SkipDir
 			}
@@ -123,6 +133,22 @@ func TranspileLegacy(projectDir string, unsafe bool) error {
 		}
 		if !strings.HasSuffix(info.Name(), ".go") {
 			return nil
+		}
+
+		content, err := ioutil.ReadFile(path)
+		if err == nil {
+			strContent := string(content)
+			if strings.Contains(strContent, "//go:build ") && !strings.Contains(strContent, "// +build ") {
+				lines := strings.Split(strContent, "\n")
+				for i, line := range lines {
+					if strings.HasPrefix(line, "//go:build ") {
+						tag := strings.TrimPrefix(line, "//go:build ")
+						lines[i] = line + "\n// +build " + tag
+						break
+					}
+				}
+				ioutil.WriteFile(path, []byte(strings.Join(lines, "\n")), info.Mode())
+			}
 		}
 
 		// Parse the file
@@ -164,20 +190,51 @@ func TranspileLegacy(projectDir string, unsafe bool) error {
 
 		// 5. Mapear e inyectar AST para los keywords "any"
 		ast.Inspect(node, func(n ast.Node) bool {
-			if ident, ok := n.(*ast.Ident); ok {
-				if ident.Name == "any" {
+			// Helper to replace 'any' in a type expression
+			replaceIfAny := func(e *ast.Expr) {
+				if e == nil {
+					return
+				}
+				if ident, ok := (*e).(*ast.Ident); ok && ident.Name == "any" {
 					ident.Name = "__GIOS_ANY__"
 					modified = true
 				}
 			}
+
+			switch x := n.(type) {
+			case *ast.Field:
+				replaceIfAny(&x.Type)
+			case *ast.ValueSpec:
+				replaceIfAny(&x.Type)
+			case *ast.TypeSpec:
+				replaceIfAny(&x.Type)
+			case *ast.TypeAssertExpr:
+				replaceIfAny(&x.Type)
+			case *ast.ArrayType:
+				replaceIfAny(&x.Elt)
+			case *ast.MapType:
+				replaceIfAny(&x.Key)
+				replaceIfAny(&x.Value)
+			case *ast.ChanType:
+				replaceIfAny(&x.Value)
+			case *ast.StarExpr:
+				replaceIfAny(&x.X)
+			case *ast.CompositeLit:
+				replaceIfAny(&x.Type)
+			case *ast.Ellipsis:
+				replaceIfAny(&x.Elt)
+			case *ast.IndexExpr: // Handle generic types like Map[string, any]
+				replaceIfAny(&x.Index)
+			}
 			return true
 		})
 
-		// Si el archivo fue tocado, lo regeneramos de AST a código fuente y guardamos
+		// 6. Convertir __GIOS_ANY__ a interface{}
 		if modified {
 			var buf bytes.Buffer
 			if err := format.Node(&buf, fset, node); err == nil {
-				finalCode := bytes.ReplaceAll(buf.Bytes(), []byte("__GIOS_ANY__"), []byte("interface{}"))
+				finalCode := buf.Bytes()
+				finalCode = bytes.ReplaceAll(finalCode, []byte("__GIOS_ANY__"), []byte("interface{}"))
 				if writeErr := ioutil.WriteFile(path, finalCode, info.Mode()); writeErr != nil {
 					fmt.Printf("[!] Transpiler failed to write %s: %v\n", path, writeErr)
 				} else {
@@ -186,6 +243,7 @@ func TranspileLegacy(projectDir string, unsafe bool) error {
 			} else {
 				fmt.Printf("[!] Transpiler failed to format %s: %v\n", path, err)
 			}
+			return nil
 		}
 
 		return nil
@@ -195,6 +253,6 @@ func TranspileLegacy(projectDir string, unsafe bool) error {
 		return err
 	}
 
-	fmt.Printf("[gios] [Transpiler] Successfully backported %d Go files and injected polyfills.\n", transpiledCount)
+	fmt.Printf("[gios] [Transpiler] Walked through files complete.\n"); fmt.Printf("[gios] [Transpiler] Successfully backported %d Go files and injected polyfills.\n", transpiledCount)
 	return nil
 }
