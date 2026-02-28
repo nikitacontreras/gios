@@ -65,6 +65,7 @@ func main() {
 		fmt.Println("  connect - Opens a persistent connection to the device for faster deploys")
 		fmt.Println("  disconnect- Closes the active persistent connection")
 		fmt.Println("  update  - Updates Gios CLI from GitHub to the latest release")
+		fmt.Println("  sdk     - Manages iOS SDKs from Theos (list, add, remove)")
 		fmt.Println("\nExample: gios init")
 		return
 	}
@@ -89,6 +90,8 @@ func main() {
 		disconnect()
 	case "update":
 		updateGios()
+	case "sdk":
+		handleSDK()
 	case "init":
 		initProject()
 	default:
@@ -547,31 +550,9 @@ func connect() {
 }
 
 func ensureSDK(version, targetPath string) error {
-	sdkDir := filepath.Dir(targetPath)
-	os.MkdirAll(sdkDir, 0755)
-	
-	fmt.Printf("[gios] Downloading iOS %s SDK from Theos project...\n", version)
-	
 	fileName := fmt.Sprintf("iPhoneOS%s.sdk.tar.xz", version)
 	url := fmt.Sprintf("https://github.com/theos/sdks/releases/download/master-146e41f/%s", fileName)
-	tarPath := filepath.Join(sdkDir, fileName)
-	
-	cmd := exec.Command("curl", "-L", "-o", tarPath, url)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("curl failed: %v", err)
-	}
-	
-	fmt.Println("[gios] Extracting SDK... (this may take a minute)")
-	cmdExt := exec.Command("tar", "-xf", tarPath, "-C", sdkDir)
-	if err := cmdExt.Run(); err != nil {
-		return fmt.Errorf("tar extraction failed: %v", err)
-	}
-	
-	os.Remove(tarPath)
-	fmt.Println("[gios] SDK installed successfully!")
-	return nil
+	return ensureSDKFromURL(version, targetPath, url)
 }
 
 func disconnect() {
@@ -733,6 +714,191 @@ func updateGios() {
 	}
 	
 	fmt.Printf("[+] Success! Gios updated to %s\n", release.TagName)
+}
+
+func handleSDK() {
+	if len(os.Args) < 3 {
+		fmt.Println("Usage: gios sdk <list|add|remove>")
+		return
+	}
+	subcmd := os.Args[2]
+	switch subcmd {
+	case "list":
+		listSDKs()
+	case "add":
+		addSDK()
+	case "remove":
+		removeSDK()
+	default:
+		fmt.Printf("Unknown sdk command: %s\n", subcmd)
+	}
+}
+
+func getDownloadedSDKs() []string {
+	var downloaded []string
+	sdksDir := filepath.Join(giosDir, "sdks")
+	files, err := ioutil.ReadDir(sdksDir)
+	if err != nil {
+		return downloaded
+	}
+	for _, f := range files {
+		if f.IsDir() && strings.HasPrefix(f.Name(), "iPhoneOS") {
+			downloaded = append(downloaded, f.Name())
+		}
+	}
+	return downloaded
+}
+
+func listSDKs() {
+	fmt.Println("[gios] Fetching available SDKs from Theos...")
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/theos/sdks/releases/latest", nil)
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		fmt.Println("[!] Failed to fetch SDKs list.")
+		return
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		Assets []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	body, _ := ioutil.ReadAll(resp.Body)
+	json.Unmarshal(body, &release)
+
+	downloaded := getDownloadedSDKs()
+	downloadedMap := make(map[string]bool)
+	for _, d := range downloaded {
+		downloadedMap[d] = true
+	}
+
+	fmt.Println("\nAvailable iOS SDKs:")
+	fmt.Println("--------------------------------------------------")
+	for _, asset := range release.Assets {
+		if strings.HasSuffix(asset.Name, ".sdk.tar.xz") || strings.HasSuffix(asset.Name, ".sdk.tar.gz") {
+			sdkName := strings.TrimSuffix(strings.TrimSuffix(asset.Name, ".tar.xz"), ".tar.gz")
+			status := " "
+			if downloadedMap[sdkName] {
+				status = "*"
+			}
+			fmt.Printf(" [%s] %s\n", status, sdkName)
+		}
+	}
+	fmt.Println("--------------------------------------------------")
+	fmt.Println("(*) = Already downloaded")
+}
+
+func addSDK() {
+	fmt.Println("[gios] Fetching available SDKs...")
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/theos/sdks/releases/latest", nil)
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		fmt.Println("[!] Failed to fetch SDKs list.")
+		return
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		Assets []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	body, _ := ioutil.ReadAll(resp.Body)
+	json.Unmarshal(body, &release)
+
+	var validAssets []struct{ Name, URL string }
+	for _, asset := range release.Assets {
+		if strings.HasSuffix(asset.Name, ".sdk.tar.xz") || strings.HasSuffix(asset.Name, ".sdk.tar.gz") {
+			validAssets = append(validAssets, struct{ Name, URL string }{asset.Name, asset.BrowserDownloadURL})
+		}
+	}
+
+	fmt.Println("\nSelect an SDK to download:")
+	for i, asset := range validAssets {
+		sdkName := strings.TrimSuffix(strings.TrimSuffix(asset.Name, ".tar.xz"), ".tar.gz")
+		fmt.Printf("  [%d] %s\n", i+1, sdkName)
+	}
+
+	choiceStr := prompt("\nEnter number", "")
+	var choice int
+	fmt.Sscanf(choiceStr, "%d", &choice)
+	
+	if choice < 1 || choice > len(validAssets) {
+		fmt.Println("[!] Invalid selection.")
+		return
+	}
+
+	selected := validAssets[choice-1]
+	sdkName := strings.TrimSuffix(strings.TrimSuffix(selected.Name, ".tar.xz"), ".tar.gz")
+	targetPath := filepath.Join(giosDir, "sdks", sdkName)
+	
+	if _, err := os.Stat(targetPath); err == nil {
+		fmt.Printf("[gios] SDK %s is already installed.\n", sdkName)
+		return
+	}
+
+	version := strings.TrimPrefix(sdkName, "iPhoneOS")
+	version = strings.TrimSuffix(version, ".sdk")
+	ensureSDKFromURL(version, targetPath, selected.URL)
+}
+
+func removeSDK() {
+	downloaded := getDownloadedSDKs()
+	if len(downloaded) == 0 {
+		fmt.Println("[gios] No SDKs currently installed.")
+		return
+	}
+
+	fmt.Println("\nInstalled iOS SDKs:")
+	for i, sdk := range downloaded {
+		fmt.Printf("  [%d] %s\n", i+1, sdk)
+	}
+
+	choiceStr := prompt("\nEnter number to remove", "")
+	var choice int
+	fmt.Sscanf(choiceStr, "%d", &choice)
+	
+	if choice < 1 || choice > len(downloaded) {
+		fmt.Println("[!] Invalid selection.")
+		return
+	}
+
+	selected := downloaded[choice-1]
+	fmt.Printf("[gios] Removing %s...\n", selected)
+	os.RemoveAll(filepath.Join(giosDir, "sdks", selected))
+	fmt.Println("[+] Removed successfully.")
+}
+
+func ensureSDKFromURL(version, targetPath, customUrl string) error {
+	sdkDir := filepath.Dir(targetPath)
+	os.MkdirAll(sdkDir, 0755)
+	
+	fmt.Printf("[gios] Downloading iOS %s SDK...\n", version)
+	
+	fileName := filepath.Base(customUrl)
+	tarPath := filepath.Join(sdkDir, fileName)
+	
+	cmd := exec.Command("curl", "-L", "-#", "-o", tarPath, customUrl)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("curl failed: %v", err)
+	}
+	
+	fmt.Println("[gios] Extracting SDK (this might take a few seconds)...")
+	cmdExt := exec.Command("tar", "-xf", tarPath, "-C", sdkDir)
+	if err := cmdExt.Run(); err != nil {
+		return fmt.Errorf("tar extraction failed: %v", err)
+	}
+	
+	os.Remove(tarPath)
+	fmt.Println("[+] SDK ready for cross-compilation!")
+	return nil
 }
 
 func initProject() {
