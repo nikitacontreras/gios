@@ -83,4 +83,4 @@ jobs:
           name: Latest Build
           tag_name: latest
           files: build/*
-          prerelease: true
+          prerelease: false
