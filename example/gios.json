@@ -10,7 +10,7 @@
   "entitlements": "ents.plist",
   "daemon": false,
   "deploy": {
-    "ip": "10.0.0.13",
+    "ip": "[IP_ADDRESS]",
     "path": "/var/root/out_bin"
   }
 }

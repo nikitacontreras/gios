@@ -56,8 +56,8 @@ func main() {
 		fmt.Println("            (Use 'run --watch' to execute and stream output)")
 		fmt.Println("  package - Prepares the binary in a .deb file (Cydia)")
 		fmt.Println("  install - Packages and automatically installs the .deb on the iDevice (DPKG)")
-		fmt.Println("  connect - Opens a persistent SSH connection to the device for faster deploys")
-		fmt.Println("  disconnect- Closes the active SSH persistent connection")
+		fmt.Println("  connect - Opens a persistent connection to the device for faster deploys")
+		fmt.Println("  disconnect- Closes the active persistent connection")
 		fmt.Println("  update  - Updates Gios CLI from GitHub to the latest release")
 		fmt.Println("\nExample: gios init")
 		return
@@ -622,7 +622,7 @@ func saveDeviceData(ip, name, arch, version string) {
 }
 
 func updateGios() {
-	fmt.Println("[gios] Checking for updates on github.com/nikitacontreras/gios...")
+	fmt.Println("[gios] Checking for updates...")
 	
 	// Utilizar la API de releases de GitHub para la version de tag (o pre-release via una release "latest")
 	req, err := http.NewRequest("GET", "https://api.github.com/repos/nikitacontreras/gios/releases/latest", nil)
@@ -634,8 +634,11 @@ func updateGios() {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	
-	if err != nil || resp.StatusCode != http.StatusOK {
-		fmt.Printf("[!] Error fetching latest release from GitHub. (HTTP %d)\n", resp.StatusCode)
+	if err != nil || resp.StatusCode == http.StatusNotFound {
+		fmt.Println("[gios] No pending updates found.")
+		return
+	} else if resp.StatusCode != http.StatusOK {
+		fmt.Printf("[!] Error fetching latest release. (HTTP %d)\n", resp.StatusCode)
 		return
 	}
 	defer resp.Body.Close()
