@@ -1,0 +1,66 @@
+name: Release Gios CLI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          
+      - name: Determine Version
+        id: version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Binaries
+        run: |
+          mkdir -p build
+          
+          # Linux
+          GOOS=linux GOARCH=amd64 go build -o build/gios-linux-amd64 main.go
+          GOOS=linux GOARCH=arm64 go build -o build/gios-linux-arm64 main.go
+          
+          # macOS
+          GOOS=darwin GOARCH=amd64 go build -o build/gios-darwin-amd64 main.go
+          GOOS=darwin GOARCH=arm64 go build -o build/gios-darwin-arm64 main.go
+          
+          # Windows
+          GOOS=windows GOARCH=amd64 go build -o build/gios-windows-amd64.exe main.go
+          GOOS=windows GOARCH=arm64 go build -o build/gios-windows-arm64.exe main.go
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: build/*
+          generate_release_notes: true
+          
+      # Fallback for main branch (Prerelease/Nightly loop)
+      - name: Update Latest Release (Main)
+        uses: softprops/action-gh-release@v1
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: Latest Build
+          tag_name: latest
+          files: build/*
+          prerelease: true
