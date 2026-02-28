@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 var (
@@ -71,6 +72,11 @@ func main() {
 		fmt.Println("  disconnect - Closes the active persistent connection")
 		fmt.Println("  update     - Updates Gios CLI from GitHub to the latest release")
 		fmt.Println("  sdk        - Manages iOS SDKs from Theos (list, add, remove)")
+		fmt.Println("  analyze    - Scans dependencies for legacy compatibility (risk factors)")
+		fmt.Println("  doctor     - Diagnoses local environment for build readiness")
+		fmt.Println("  diff       - Shows what changes gios would apply to a specific file")
+		fmt.Println("  logs       - Streams syslog from the device for debugging")
+		fmt.Println("  watch      - Automatically builds and runs on file changes (alias for run --watch)")
 		fmt.Println("\nExample: gios init")
 		return
 	}
@@ -82,7 +88,7 @@ func main() {
 	case "run":
 		build()
 		run()
-	case "package":
+	case "package", "pkg":
 		build()
 		createDeb()
 	case "install":
@@ -97,6 +103,20 @@ func main() {
 		updateGios()
 	case "sdk":
 		handleSDK()
+	case "logs":
+		runLogs()
+	case "watch":
+		runWatch()
+	case "analyze":
+		analyzeProject()
+	case "doctor":
+		runDoctor()
+	case "diff":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: gios diff <file>")
+			return
+		}
+		runDiff(os.Args[2])
 	case "init":
 		initProject()
 	default:
@@ -333,17 +353,12 @@ func build() {
 		ldflags = "-s -w"
 	}
 
-	cmd := exec.Command(goBin, "build", "-trimpath", "-ldflags="+ldflags, "-o", conf.Output, conf.Main)
-	cmd.Dir = cwd
-
 	cmdEnv := append(os.Environ(),
 		"CGO_ENABLED="+cgoState,
 		"GOOS="+envOS,
 		"GOARCH="+envArch,
 	)
-	
 	if conf.Arch == "armv7" {
-		// Aggressive shimming through macros and static lib
 		cmdEnv = append(cmdEnv, "CGO_LDFLAGS=-L"+giosLibDir+" -lgios_libc")
 	}
 	if envArm != "" {
@@ -355,36 +370,82 @@ func build() {
 	if sdkPath != "" {
 		cmdEnv = append(cmdEnv, "GIOS_SDK_PATH="+sdkPath)
 	}
-	cmd.Env = cmdEnv
 
-	fmt.Println("[gios] Compiling...")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		fmt.Printf("Compilation error:\n%s\n", string(out))
-		os.Exit(1)
+	isDylib := strings.HasSuffix(conf.Output, ".dylib")
+	
+	if isDylib && conf.Arch == "armv7" {
+		// armv7 doesn't support c-shared in old go versions easily.
+		// Use c-archive + manual link hack.
+		tempA := "lib_gios_tmp.a"
+		tempH := "lib_gios_tmp.h"
+		buildArgs := []string{"build", "-trimpath", "-buildmode=c-archive", "-o", tempA, conf.Main}
+		if _, err := os.Stat(filepath.Join(cwd, "vendor")); err == nil {
+			buildArgs = append(buildArgs, "-mod=vendor")
+		}
+		
+		cmd := exec.Command(goBin, buildArgs...)
+		cmd.Dir = cwd
+		cmd.Env = cmdEnv
+		drawProgress("Compiling Archive", 30)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fmt.Printf("\nGo Archive Error:\n%s\n", string(out))
+			os.Exit(1)
+		}
+		
+		drawProgress("Linking Dynamic Lib", 60)
+		// Manual link with CC (which has SDK, arch, etc)
+		// Using -Wl,-all_load to force inclusion of the Go runtime from the .a file
+		linkArgs := []string{"-shared", "-dynamiclib", "-o", conf.Output, "-Wl,-all_load", tempA, "-L" + giosLibDir, "-lgios_libc", "-framework", "CoreFoundation", "-framework", "UIKit"}
+		linkCmd := exec.Command(cc, linkArgs...)
+		linkCmd.Env = cmdEnv
+		if out, err := linkCmd.CombinedOutput(); err != nil {
+			fmt.Printf("\nLinker Error:\n%s\n", string(out))
+			os.Exit(1)
+		}
+		os.Remove(tempA)
+		os.Remove(tempH)
+		drawProgress("Linking", 80)
+
+	} else {
+		buildArgs := []string{"build", "-trimpath", "-ldflags=" + ldflags}
+		if isDylib {
+			buildArgs = append(buildArgs, "-buildmode=c-shared")
+		}
+		if _, err := os.Stat(filepath.Join(cwd, "vendor")); err == nil {
+			buildArgs = append(buildArgs, "-mod=vendor")
+		}
+		buildArgs = append(buildArgs, "-o", conf.Output, conf.Main)
+
+		cmd := exec.Command(goBin, buildArgs...)
+		cmd.Dir = cwd
+		cmd.Env = cmdEnv
+
+		drawProgress("Compiling", 30)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Printf("\nCompilation error:\n%s\n", string(out))
+			os.Exit(1)
+		}
+		drawProgress("Compiling", 70)
 	}
-
-	fmt.Printf("[gios] Success -> %s\n", conf.Output)
 
 	// Sign
 	if _, err := exec.LookPath("ldid"); err == nil {
-		fmt.Println("[gios] Signing...")
+		drawProgress("Signing", 85)
 		var signCmd *exec.Cmd
 		if conf.Entitlements != "" && conf.Entitlements != "none" {
 			signCmd = exec.Command("ldid", "-S"+conf.Entitlements, conf.Output)
 		} else {
 			signCmd = exec.Command("ldid", "-S", conf.Output)
 		}
-		if out, err := signCmd.CombinedOutput(); err != nil {
-			fmt.Printf("Signing error:\n%s\n", string(out))
-		}
-	} else {
-		fmt.Println("[gios] Warning: ldid not found. The binary will not be signed.")
+		signCmd.CombinedOutput()
 	}
+	drawProgress("Ready!", 100)
 }
 
 func run() {
 	conf := loadConfig()
+	isDylib := strings.HasSuffix(conf.Output, ".dylib")
 	if conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX" {
 		fmt.Println("[gios] Error: Deployment IP is not configured.")
 		return
@@ -409,8 +470,52 @@ func run() {
 		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
 		conf.Output, dest)
 
+	drawProgress("Uploading", 50)
 	if err := cmd.Run(); err != nil {
-		fmt.Println("[gios] Error uploading file via SCP.")
+		fmt.Println("\n[gios] Error uploading file via SCP.")
+		return
+	}
+
+	if isDylib {
+		// Also upload the .plist filter
+		plistName := strings.TrimSuffix(conf.Output, ".dylib") + ".plist"
+		localPlist := "filter.plist"
+		if _, err := os.Stat(localPlist); os.IsNotExist(err) {
+			// Create a proper XML plist
+			plistContent := `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Filter</key>
+	<dict>
+		<key>Bundles</key>
+		<array>
+			<string>com.apple.springboard</string>
+		</array>
+	</dict>
+</dict>
+</plist>`
+			ioutil.WriteFile("tmp_filter.plist", []byte(plistContent), 0644)
+			localPlist = "tmp_filter.plist"
+		}
+		
+		destPlist := filepath.Join(conf.Deploy.Path, plistName)
+		scpPlist := exec.Command("scp", "-i", sshKey, "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", localPlist, "root@"+conf.Deploy.IP+":"+destPlist)
+		scpPlist.Run()
+		os.Remove("tmp_filter.plist")
+	}
+	drawProgress("Uploading", 100)
+
+	if isDylib {
+		fmt.Printf("[gios] Tweak detected. Triggering Respring to apply...\n")
+		respringCmd := exec.Command("ssh",
+			"-i", sshKey,
+			"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
+			"root@"+conf.Deploy.IP,
+			"killall -9 SpringBoard")
+		respringCmd.Run()
+		fmt.Println("[gios] Respring triggered! Wait 2 seconds for injection.")
+		time.Sleep(2 * time.Second)
 		return
 	}
 
@@ -456,7 +561,7 @@ func createDeb() {
 		version = "1.0.0"
 	}
 
-	fmt.Printf("[gios] Packaging %s (%s) to .deb...\n", pkgID, version)
+	drawProgress("Packaging", 10)
 
 	stage := "deb_stage"
 	os.RemoveAll(stage)
@@ -479,8 +584,34 @@ func createDeb() {
 	os.MkdirAll(debianDir, 0755)
 
 	// Move binary
-	exec.Command("cp", conf.Output, filepath.Join(binPath, conf.Output)).Run()
-	os.Chmod(filepath.Join(binPath, conf.Output), 0755)
+	if strings.HasSuffix(conf.Output, ".dylib") {
+		// Handle dylib for tweaks
+		dylibPath := filepath.Join(stage, "Library", "MobileSubstrate", "DynamicLibraries")
+		if conf.Arch == "arm64" {
+			dylibPath = filepath.Join(stage, "var", "jb", "Library", "MobileSubstrate", "DynamicLibraries")
+		}
+		os.MkdirAll(dylibPath, 0755)
+		exec.Command("cp", conf.Output, filepath.Join(dylibPath, conf.Output)).Run()
+		os.Chmod(filepath.Join(dylibPath, conf.Output), 0755)
+		// Create a .plist for the dylib
+		plistName := strings.TrimSuffix(conf.Output, ".dylib") + ".plist"
+		plistPath := filepath.Join(dylibPath, plistName)
+		
+		filterSrc := "filter.plist"
+		if _, err := os.Stat(filterSrc); err == nil {
+			exec.Command("cp", filterSrc, plistPath).Run()
+			fmt.Println("[gios] (+) Used custom filter.plist from project root")
+		} else {
+			plistContent := fmt.Sprintf(`{ Filter = { Bundles = ( "com.apple.springboard" ); }; }`) // Default filter
+			ioutil.WriteFile(plistPath, []byte(plistContent), 0644)
+			fmt.Println("[gios] (+) Used default SpringBoard filter")
+		}
+		fmt.Println("[gios] (+) Packaged as a Tweak (.dylib)")
+	} else {
+		// Handle regular executable
+		exec.Command("cp", conf.Output, filepath.Join(binPath, conf.Output)).Run()
+		os.Chmod(filepath.Join(binPath, conf.Output), 0755)
+	}
 
 	// Control file
 	control := fmt.Sprintf("Package: %s\nName: %s\nVersion: %s\nArchitecture: %s\nDescription: App created with Gios\nMaintainer: Gios User\nAuthor: Gios\nSection: Utilities\n",
@@ -551,12 +682,14 @@ exit 0
 	}
 
 	// Build deb
+	drawProgress("Building .deb", 80)
 	debName := fmt.Sprintf("%s_%s_%s.deb", pkgID, version, debArch)
 	out, err := exec.Command("dpkg-deb", "-Zgzip", "-b", stage, debName).CombinedOutput()
 	if err != nil {
-		fmt.Printf("[!] Error in dpkg-deb:\n%s\n", string(out))
+		fmt.Printf("\n[!] Error in dpkg-deb:\n%s\n", string(out))
 		fmt.Println("    Note: You need to install dpkg on your Mac (brew install dpkg)")
 	} else {
+		drawProgress("Done!", 100)
 		fmt.Printf("[+] Generated: %s\n", debName)
 	}
 
@@ -620,23 +753,33 @@ func installDeb() {
 	}
 
 	fmt.Printf("[+] Installation successfully completed on the iPad!\n%s\n", string(out))
+
+	// Tweak check
+	if strings.HasSuffix(conf.Output, ".dylib") {
+		fmt.Println("[gios] Tweak detected. Triggering Respring to apply changes...")
+		exec.Command("ssh", "-i", filepath.Join(giosDir, "id_rsa"), "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", "root@"+conf.Deploy.IP, "killall -9 SpringBoard").Run()
+	}
 }
 
-func prompt(msg string, defaultVal string) string {
-	reader := bufio.NewReader(os.Stdin)
-	if defaultVal != "" {
-		fmt.Printf("%s [%s]: ", msg, defaultVal)
-	} else {
-		fmt.Printf("%s: ", msg)
+func prompt(label, def string) string {
+	fmt.Printf("%s [%s]: ", label, def)
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	text := scanner.Text()
+	if text == "" {
+		return def
 	}
+	return text
+}
 
-	input, _ := reader.ReadString('\n')
-	input = strings.TrimSpace(input)
-
-	if input == "" {
-		return defaultVal
+func drawProgress(step string, percent int) {
+	width := 30
+	pos := (percent * width) / 100
+	bar := "[" + strings.Repeat("█", pos) + strings.Repeat("░", width-pos) + "]"
+	fmt.Printf("\r%s %s %d%%  ", ColorCyan+step+ColorReset, bar, percent)
+	if percent >= 100 {
+		fmt.Println()
 	}
-	return input
 }
 
 func connect() {
@@ -1061,29 +1204,28 @@ func initProject() {
 	cwd, _ := os.Getwd()
 	baseName := filepath.Base(cwd)
 
-	fmt.Println("\n=============================================")
+	fmt.Println("\n" + ColorCyan + "=============================================")
 	fmt.Println("    GIOS Interactive Project Initialization  ")
-	fmt.Println("=============================================")
+	fmt.Println("=============================================" + ColorReset)
 
 	// Questions
 	conf := Config{}
 	conf.Name = prompt("1. Project Name", baseName)
 	conf.PackageID = prompt("2. Package ID (e.g. com.yourname.app)", "com.gios."+conf.Name)
 	conf.Version = prompt("3. Version", "1.0.0")
-	conf.Output = "out_bin"
-	conf.Main = "main.go"
 
-	fmt.Println("\n4. Target Device Architecture:")
+	fmt.Println("\n4. Project Template:")
+	fmt.Println("   [1] CLI Tool       - Simple standalone binary")
+	fmt.Println("   [2] LaunchDaemon   - Background service (auto .plist)")
+	fmt.Println("   [3] Cydia Tweak    - Injected library (WIP - Phase 3)")
+	templateType := prompt("   Option", "1")
+
+	fmt.Println("\n5. Target Device Architecture:")
 	fmt.Println("   [1] Legacy 32-bit (iPhone 2G to 5c, iPad 1 to 4)")
 	fmt.Println("   [2] Modern 64-bit Rootless (iPhone 5s to 16, iPad Air/Pro)")
-
 	targetOption := prompt("   Option", "1")
 
-	isModern := false
-	if targetOption == "2" {
-		isModern = true
-	}
-
+	isModern := (targetOption == "2")
 	if !isModern {
 		conf.Arch = "armv7"
 		conf.GoVersion = "go1.14.15"
@@ -1093,29 +1235,31 @@ func initProject() {
 		conf.Arch = "arm64"
 		conf.GoVersion = "system"
 		conf.SDKVersion = "system"
-		conf.Entitlements = "none" // Usually coretrust bypass or ldid without explicit ents handles it
+		conf.Entitlements = "none"
 	}
 
-	daemonInput := prompt("\n5. Run as background service (LaunchDaemon)? (y/N)", "N")
-	if strings.ToLower(daemonInput) == "y" {
+	conf.Deploy.IP = prompt("\n6. Target Device IP Address", "192.168.1.XX")
+	conf.Output = "out_" + conf.Name
+	conf.Main = "main.go"
+
+	if templateType == "2" {
 		conf.Daemon = true
 	}
 
-	conf.Deploy.IP = prompt("\n6. Target Device IP Address (optional)", "192.168.1.XX")
-
-	if conf.Arch == "arm64" {
+	if isModern {
 		conf.Deploy.Path = "/var/jb/var/root"
 	} else {
-		conf.Deploy.Path = "/var/root/out_bin"
+		conf.Deploy.Path = "/var/root/" + conf.Output
 	}
 
-	fmt.Println("\n=============================================")
+	fmt.Println("\n" + ColorCyan + "=============================================" + ColorReset)
 
+	// Create go.mod
 	if _, err := os.Stat("go.mod"); os.IsNotExist(err) {
 		fmt.Println("[+] Initializing Go modules...")
 		modGoVer := "1.14"
 		if isModern {
-			modGoVer = "1.22"
+			modGoVer = "1.23"
 		}
 		modData := fmt.Sprintf("module %s\n\ngo %s\n", conf.Name, modGoVer)
 		ioutil.WriteFile("go.mod", []byte(modData), 0644)
@@ -1126,8 +1270,8 @@ func initProject() {
 	ioutil.WriteFile("gios.json", jsonData, 0644)
 	fmt.Println("[+] Created gios.json")
 
-	// Entitlements for legacy
-	if !isModern {
+	// Entitlements
+	if !isModern && conf.Entitlements != "none" {
 		if _, err := os.Stat("ents.plist"); os.IsNotExist(err) {
 			entsData := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1143,20 +1287,89 @@ func initProject() {
 		}
 	}
 
-	// Create main.go template if it doesn't exist
-	if _, err := os.Stat("main.go"); os.IsNotExist(err) {
-		mainGoData := `package main
+	// Project Type Specific Files
+	switch templateType {
+	case "2": // Daemon
+		if _, err := os.Stat(conf.Name + ".plist"); os.IsNotExist(err) {
+			plistData := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>%s</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>%s/%s</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+</dict>
+</plist>
+`, conf.PackageID, conf.Deploy.Path, conf.Output)
+			ioutil.WriteFile(conf.Name+".plist", []byte(plistData), 0644)
+			fmt.Println("[+] Created LaunchDaemon plist")
+		}
+		if _, err := os.Stat("main.go"); os.IsNotExist(err) {
+			mainGoData := `package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	fmt.Printf("Daemon %s starting...\n", "` + conf.Name + `")
+	for {
+		// Your background logic here
+		fmt.Println("Heartbeat from Gios Daemon")
+		time.Sleep(30 * time.Second)
+	}
+}
+`
+			ioutil.WriteFile("main.go", []byte(mainGoData), 0644)
+			fmt.Println("[+] Created Daemon main.go")
+		}
+
+	case "3": // Tweak
+		if _, err := os.Stat("filter.plist"); os.IsNotExist(err) {
+			filterData := `{ Filter = { Bundles = ( "com.apple.springboard" ); }; }`
+			ioutil.WriteFile("filter.plist", []byte(filterData), 0644)
+			fmt.Println("[+] Created Cydia Tweak filter.plist")
+		}
+		if _, err := os.Stat("main.go"); os.IsNotExist(err) {
+			mainGoData := `package main
+
+import "fmt"
+
+// Tweak Entry point (WIP)
+// In Go, we'll export a function that Cydia's substrate can load
+func init() {
+	fmt.Println("Gios Tweak Injected successfully!")
+}
+
+func main() {}
+`
+			ioutil.WriteFile("main.go", []byte(mainGoData), 0644)
+			fmt.Println("[+] Created Tweak main.go")
+		}
+
+	default: // CLI
+		if _, err := os.Stat("main.go"); os.IsNotExist(err) {
+			mainGoData := `package main
 
 import "fmt"
 
 func main() {
-	fmt.Println("Hello from Gios!")
+	fmt.Println("Hello from Gios CLI!")
 }
 `
-		ioutil.WriteFile("main.go", []byte(mainGoData), 0644)
-		fmt.Println("[+] Created initial main.go")
+			ioutil.WriteFile("main.go", []byte(mainGoData), 0644)
+			fmt.Println("[+] Created CLI main.go")
+		}
 	}
 
-	fmt.Println("\nProject initialized successfully!")
-	fmt.Println("Run 'gios build' to compile or 'gios install' to send to device.")
+	fmt.Printf("\n%s[+] Project initialized successfully!%s\n", ColorGreen, ColorBold)
+	fmt.Println("Run 'gios build' to compile or 'gios run' to test on device.")
 }
