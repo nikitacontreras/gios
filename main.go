@@ -45,9 +45,15 @@ func init() {
 }
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "-v" || os.Args[1] == "--version") {
+		fmt.Printf("Gios CLI version %s\n", AppVersion)
+		return
+	}
+
 	if len(os.Args) < 2 {
 		fmt.Println("Gios - The modern build system for legacy & modern iOS")
 		fmt.Println("======================================================")
+		fmt.Printf("Version: %s\n\n", AppVersion)
 		fmt.Println("Usage: gios <command>")
 		fmt.Println("\nAvailable commands:")
 		fmt.Println("  init    - Initializes a new project (Interactive Setup)")
@@ -624,13 +630,12 @@ func saveDeviceData(ip, name, arch, version string) {
 func updateGios() {
 	fmt.Println("[gios] Checking for updates...")
 	
-	// Utilizar la API de releases de GitHub para la version de tag (o pre-release via una release "latest")
-	req, err := http.NewRequest("GET", "https://api.github.com/repos/nikitacontreras/gios/releases/latest", nil)
+	// API de GitHub para listar todos los releases (incluyendo pre-releases como "latest")
+	req, err := http.NewRequest("GET", "https://api.github.com/repos/nikitacontreras/gios/releases", nil)
 	if err != nil {
 		fmt.Printf("[!] Could not check for updates: %v\n", err)
 		return
 	}
-	// Add arbitrary Github token header if rate limited, or just let it be public
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	
@@ -638,12 +643,12 @@ func updateGios() {
 		fmt.Println("[gios] No pending updates found.")
 		return
 	} else if resp.StatusCode != http.StatusOK {
-		fmt.Printf("[!] Error fetching latest release. (HTTP %d)\n", resp.StatusCode)
+		fmt.Printf("[!] Error fetching releases. (HTTP %d)\n", resp.StatusCode)
 		return
 	}
 	defer resp.Body.Close()
 
-	var release struct {
+	var releases []struct {
 		TagName string `json:"tag_name"`
 		Assets  []struct {
 			Name               string `json:"name"`
@@ -652,7 +657,14 @@ func updateGios() {
 	}
 
 	body, _ := ioutil.ReadAll(resp.Body)
-	json.Unmarshal(body, &release)
+	json.Unmarshal(body, &releases)
+
+	if len(releases) == 0 {
+		fmt.Println("[gios] No pending updates found.")
+		return
+	}
+
+	release := releases[0] // El primero es el más reciente
 
 	if release.TagName == AppVersion {
 		fmt.Printf("[gios] You already have the latest version: %s\n", AppVersion)
