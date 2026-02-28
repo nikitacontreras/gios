@@ -59,16 +59,16 @@ func main() {
 		fmt.Printf("Version: %s (Built: %s)\n\n", AppVersion, BuildTime)
 		fmt.Println("Usage: gios <command>")
 		fmt.Println("\nAvailable commands:")
-		fmt.Println("  init    - Initializes a new project (Interactive Setup)")
-		fmt.Println("  build   - Builds and signs the binary using gios.json configuration")
-		fmt.Println("  run     - Builds, signs and sends the binary to the device via SCP")
-		fmt.Println("            (Use 'run --watch' to execute and stream output)")
-		fmt.Println("  package - Prepares the binary in a .deb file (Cydia)")
-		fmt.Println("  install - Packages and automatically installs the .deb on the iDevice (DPKG)")
-		fmt.Println("  connect - Opens a persistent connection to the device for faster deploys")
-		fmt.Println("  disconnect- Closes the active persistent connection")
-		fmt.Println("  update  - Updates Gios CLI from GitHub to the latest release")
-		fmt.Println("  sdk     - Manages iOS SDKs from Theos (list, add, remove)")
+		fmt.Println("  init       - Initializes a new project (Interactive Setup)")
+		fmt.Println("  build      - Builds and signs the binary using gios.json configuration")
+		fmt.Println("  run        - Builds, signs and sends the binary to the device via SCP")
+		fmt.Println("               (Use 'run --watch' to execute and stream output)")
+		fmt.Println("  package    - Prepares the binary in a .deb file (Cydia)")
+		fmt.Println("  install    - Packages and automatically installs the .deb on the iDevice (DPKG)")
+		fmt.Println("  connect    - Opens a persistent connection to the device for faster deploys")
+		fmt.Println("  disconnect - Closes the active persistent connection")
+		fmt.Println("  update     - Updates Gios CLI from GitHub to the latest release")
+		fmt.Println("  sdk        - Manages iOS SDKs from Theos (list, add, remove)")
 		fmt.Println("\nExample: gios init")
 		return
 	}
@@ -183,6 +183,15 @@ func build() {
 			}
 		}
 		cc = ensureWrapper(sdkPath)
+		
+		// ----------------------------------------------------
+		// Gios Legacy Code Transpiler (Modern -> 1.14)
+		// ----------------------------------------------------
+		fmt.Println("[gios] Legacy 32-bit Target Detected.")
+		if err := TranspileLegacy(cwd); err != nil {
+			fmt.Println("[!] Transpiler Error:", err)
+		}
+		
 	} else if conf.Arch == "arm64" {
 		// Modern configuration (Rootless / 64-bit)
 		envOS = "ios"
