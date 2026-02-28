@@ -23,16 +23,13 @@ type FileMode = os.FileMode
 type PathError = os.PathError
 `
 	slicesPolyfill = `package slices
-// This is a minimal shim for the new slices package.
-// Production transpilers would contain the full generic-monomorphized algorithms.
 func ContainsString(s []string, e string) bool {
-	for _, a := range s {
-		if a == e {
-			return true
-		}
-	}
+	for _, a := range s { if a == e { return true } }
 	return false
 }
+`
+	emptyPolyfill = `package %s
+// Empty shim to bypass "cannot find package" errors
 `
 )
 
@@ -41,15 +38,29 @@ func generatePolyfills(projectDir string) (string, error) {
 	polyfillDir := filepath.Join(projectDir, ".gios_polyfills")
 	os.MkdirAll(polyfillDir, 0755)
 
-	// Create io/fs shim
+	// Create explicit shims
 	fsDir := filepath.Join(polyfillDir, "io_fs")
 	os.MkdirAll(fsDir, 0755)
 	ioutil.WriteFile(filepath.Join(fsDir, "fs.go"), []byte(ioFsPolyfill), 0644)
 
-	// Create slices shim
 	slicesDir := filepath.Join(polyfillDir, "slices")
 	os.MkdirAll(slicesDir, 0755)
 	ioutil.WriteFile(filepath.Join(slicesDir, "slices.go"), []byte(slicesPolyfill), 0644)
+
+	// Create dynamic empty shims for the rest
+	missing := []string{
+		"cmp", "crypto_ecdh", "crypto_mlkem", "crypto_pbkdf2", 
+		"crypto_tls_fipsonly", "embed", "iter", "log_slog", 
+		"maps", "math_rand_v2", "net_netip",
+	}
+
+	for _, m := range missing {
+		mDir := filepath.Join(polyfillDir, m)
+		os.MkdirAll(mDir, 0755)
+		pkgName := strings.Split(m, "_")[len(strings.Split(m, "_"))-1] // get last part for package name
+		content := fmt.Sprintf(emptyPolyfill, pkgName)
+		ioutil.WriteFile(filepath.Join(mDir, m+".go"), []byte(content), 0644)
+	}
 
 	return polyfillDir, nil
 }
@@ -101,8 +112,7 @@ func TranspileLegacy(projectDir string) error {
 		}
 		if info.IsDir() {
 			// Skip the polyfills directory itself so we don't transpile our own shims
-			// We also skip vendor to avoid destroying third party libs blindly (for now)
-			if info.Name() == ".gios_polyfills" || info.Name() == "vendor" {
+			if info.Name() == ".gios_polyfills" || info.Name() == ".git" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -119,16 +129,30 @@ func TranspileLegacy(projectDir string) error {
 
 		modified := false
 
-		// 4. Mapear y Reescribir los IMPORTS del Futuro
+		// 4. Map and Rewrite Future Imports
 		for _, imp := range node.Imports {
 			if imp.Path != nil {
 				unquoted, _ := strconv.Unquote(imp.Path.Value)
-				switch unquoted {
-				case "io/fs":
-					imp.Path.Value = strconv.Quote(polyfillBaseImport + "/io_fs")
-					modified = true
-				case "slices":
-					imp.Path.Value = strconv.Quote(polyfillBaseImport + "/slices")
+				
+				// Map of standard library paths to our polyfill dir names
+				translations := map[string]string{
+					"io/fs":               "io_fs",
+					"slices":              "slices",
+					"cmp":                 "cmp",
+					"crypto/ecdh":         "crypto_ecdh",
+					"crypto/mlkem":        "crypto_mlkem",
+					"crypto/pbkdf2":       "crypto_pbkdf2",
+					"crypto/tls/fipsonly": "crypto_tls_fipsonly",
+					"embed":               "embed",
+					"iter":                "iter",
+					"log/slog":            "log_slog",
+					"maps":                "maps",
+					"math/rand/v2":        "math_rand_v2",
+					"net/netip":           "net_netip",
+				}
+
+				if polyName, ok := translations[unquoted]; ok {
+					imp.Path.Value = strconv.Quote(polyfillBaseImport + "/" + polyName)
 					modified = true
 				}
 			}
