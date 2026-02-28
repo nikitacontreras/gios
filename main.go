@@ -184,9 +184,7 @@ func build() {
 		}
 		cc = ensureWrapper(sdkPath)
 		
-		// ----------------------------------------------------
 		// Gios Legacy Code Transpiler (Modern -> 1.14)
-		// ----------------------------------------------------
 		fmt.Println("[gios] Legacy 32-bit Target Detected.")
 		if err := TranspileLegacy(cwd); err != nil {
 			fmt.Println("[!] Transpiler Error:", err)
@@ -390,9 +388,10 @@ func createDeb() {
 		// Post-Install script
 		postinstPath := filepath.Join(debianDir, "postinst")
 		postinstContent := fmt.Sprintf(`#!/bin/bash
+chown 0:0 %s
 launchctl load %s
 exit 0
-`, daemonLoadPath)
+`, daemonLoadPath, daemonLoadPath)
 		ioutil.WriteFile(postinstPath, []byte(postinstContent), 0755)
 
 		// Pre-Remove script
