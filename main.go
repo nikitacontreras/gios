@@ -61,8 +61,10 @@ func main() {
 		fmt.Println("\nAvailable commands:")
 		fmt.Println("  init       - Initializes a new project (Interactive Setup)")
 		fmt.Println("  build      - Builds and signs the binary using gios.json configuration")
+		fmt.Println("               (Use '--unsafe' to transpile vendor dependencies)")
 		fmt.Println("  run        - Builds, signs and sends the binary to the device via SCP")
 		fmt.Println("               (Use 'run --watch' to execute and stream output)")
+		fmt.Println("               (Use '--unsafe' to transpile vendor dependencies)")
 		fmt.Println("  package    - Prepares the binary in a .deb file (Cydia)")
 		fmt.Println("  install    - Packages and automatically installs the .deb on the iDevice (DPKG)")
 		fmt.Println("  connect    - Opens a persistent connection to the device for faster deploys")
@@ -186,7 +188,19 @@ func build() {
 		
 		// Gios Legacy Code Transpiler (Modern -> 1.14)
 		fmt.Println("[gios] Legacy 32-bit Target Detected.")
-		if err := TranspileLegacy(cwd); err != nil {
+		unsafeFlag := false
+		for _, arg := range os.Args {
+			if arg == "--unsafe" {
+				unsafeFlag = true
+				break
+			}
+		}
+
+		if unsafeFlag {
+			fmt.Println("[gios] [Transpiler] WARNING: --unsafe flag active. Transpiling 'vendor' third-party dependencies.")
+		}
+
+		if err := TranspileLegacy(cwd, unsafeFlag); err != nil {
 			fmt.Println("[!] Transpiler Error:", err)
 		}
 		

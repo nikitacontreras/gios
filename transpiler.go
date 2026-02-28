@@ -66,7 +66,7 @@ func generatePolyfills(projectDir string) (string, error) {
 }
 
 // TranspileLegacy modifies Go 1.18+ source code into Go 1.14 compatible code.
-func TranspileLegacy(projectDir string) error {
+func TranspileLegacy(projectDir string, unsafe bool) error {
 	fmt.Println("[gios] [Transpiler] Starting automated backport to Go 1.14...")
 
 	// 1. Downgrade go.mod and get Module Name
@@ -102,7 +102,7 @@ func TranspileLegacy(projectDir string) error {
 	}
 	polyfillBaseImport := moduleName + "/.gios_polyfills"
 
-	// 3. Transpile all .go files in the directory (and subdirectories EXCEPT vendor)
+	// 3. Transpile all .go files in the directory (and subdirectories EXCEPT vendor by default)
 	fset := token.NewFileSet()
 	var transpiledCount int
 
@@ -113,6 +113,10 @@ func TranspileLegacy(projectDir string) error {
 		if info.IsDir() {
 			// Skip the polyfills directory itself so we don't transpile our own shims
 			if info.Name() == ".gios_polyfills" || info.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			// Skip vendor directory unless --unsafe was passed
+			if !unsafe && info.Name() == "vendor" {
 				return filepath.SkipDir
 			}
 			return nil
