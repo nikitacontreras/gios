@@ -211,6 +211,11 @@ func ensureShims(sdkPath, wrapperPath string) string {
 	shimA := filepath.Join(libDir, "libgios_libc.a")
 
 	content := `#include <stddef.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 void *memmove(void *dest, const void *src, size_t n) {
     unsigned char *d = (unsigned char *)dest;
@@ -257,6 +262,16 @@ void memset_pattern16(void *b, const void *pattern16, size_t len) {
 void *__memcpy_chk(void *dest, const void *src, size_t len, size_t destlen) { return memcpy(dest, src, len); }
 void *__memset_chk(void *dest, int c, size_t len, size_t destlen) { return memset(dest, c, len); }
 void *__memmove_chk(void *dest, const void *src, size_t len, size_t destlen) { return memmove(dest, src, len); }
+
+// Backport for iOS 5.1.1 (missing fdopendir)
+DIR *fdopendir(int fd) {
+    char path[1024];
+    if (fcntl(fd, F_GETPATH, path) != -1) {
+        return opendir(path);
+    }
+    errno = ENOSYS;
+    return NULL;
+}
 `
 	ioutil.WriteFile(shimC, []byte(content), 0644)
 	
@@ -651,8 +666,12 @@ func createDeb() {
 	<true/>
 	<key>KeepAlive</key>
 	<true/>
+	<key>StandardOutPath</key>
+	<string>/var/log/%s.log</string>
+	<key>StandardErrorPath</key>
+	<string>/var/log/%s.log</string>
 </dict>
-</plist>`, pkgID, plistOutputTarget)
+</plist>`, pkgID, plistOutputTarget, pkgID, pkgID)
 
 		ioutil.WriteFile(plistPath, []byte(plistContent), 0644)
 

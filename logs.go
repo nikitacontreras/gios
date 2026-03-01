@@ -31,8 +31,10 @@ func runLogs() {
 
 	// List of commands for logging.
 	logCommands := []string{
+		"tail -f /var/log/" + conf.PackageID + ".log",
 		"tail -f /var/log/syslog",
 		"tail -f /var/log/messages",
+		"tail -f /var/log/webdebug.log",
 		"log show --last 1m --follow --level debug",
 		"tail -f /var/log/notifyd.log",
 	}
