@@ -18,7 +18,7 @@ A powerful LaunchDaemon (Background Service) that provides a web-based dashboard
    ```bash
    gios install
    ```
-3. Open your browser on your Mac and go to: `http://<ipad_ip>:8080`
+3. Open your browser on your computer and go to: `http://<ipad_ip>:8080`
 
 ## Developer Notes
 This example demonstrates how to build a persistent service (LaunchDaemon) in Go. It handles root privileges to execute system commands and provides a bridge between web inputs and native iOS APIs via CGO.

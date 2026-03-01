@@ -50,7 +50,7 @@ git clone https://github.com/nikitacontreras/gios.git
 cd gios
 .\install.ps1
 ```
-*(On Windows, you must have Go installed and accessible from your `$env:PATH`. On UNIX, you will additionally need `dpkg` installed (e.g. `brew install dpkg`) to use the local `.deb` generator).*
+*(On Windows, you must have Go installed and accessible from your `$env:PATH`. On UNIX, you will additionally need `dpkg` installed (e.g., via your package manager) to use the local `.deb` generator).*
 
 ---
 

@@ -110,6 +110,8 @@ func main() {
 		runWatch()
 	case "analyze":
 		analyzeProject()
+	case "daemon":
+		runDaemon()
 	case "doctor":
 		runDoctor()
 	case "diff":
@@ -175,7 +177,12 @@ func getFlagValue(flagName string) string {
 func (c Config) GetSSHArgs(extra ...string) []string {
 	sshKeyPath := filepath.Join(giosDir, "id_rsa")
 	target := "root@" + c.Deploy.IP
-	args := []string{"-i", sshKeyPath, "-o", "ControlPath=~/.ssh/gios-%r@%h:%p"}
+	args := []string{
+		"-i", sshKeyPath,
+		"-o", "HostKeyAlgorithms=+ssh-rsa,ssh-dss",
+		"-o", "PubkeyAcceptedAlgorithms=+ssh-rsa,ssh-dss",
+		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
+	}
 	if c.Deploy.USB {
 		target = "root@127.0.0.1"
 		args = append(args, "-p", "2222")
@@ -186,7 +193,13 @@ func (c Config) GetSSHArgs(extra ...string) []string {
 
 func (c Config) GetSCPArgs() []string {
 	sshKeyPath := filepath.Join(giosDir, "id_rsa")
-	args := []string{"-i", sshKeyPath, "-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/gios-%r@%h:%p"}
+	args := []string{
+		"-i", sshKeyPath,
+		"-o", "HostKeyAlgorithms=+ssh-rsa,ssh-dss",
+		"-o", "PubkeyAcceptedAlgorithms=+ssh-rsa,ssh-dss",
+		"-o", "ControlMaster=auto",
+		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
+	}
 	if c.Deploy.USB {
 		args = append(args, "-P", "2222")
 	}
@@ -208,7 +221,7 @@ func ensureUSBTunnel(conf Config) bool {
 
 	// Check for idevice_id
 	if _, err := exec.LookPath("idevice_id"); err != nil {
-		fmt.Printf("%s[!] Error: 'idevice_id' not found. Please install libimobiledevice (brew install libimobiledevice).%s\n", ColorRed, ColorReset)
+		fmt.Printf("%s[!] Error: 'idevice_id' not found. Please install libimobiledevice%s\n", ColorRed, ColorReset)
 		return false
 	}
 
@@ -235,6 +248,37 @@ func ensureUSBTunnel(conf Config) bool {
 		time.Sleep(1500 * time.Millisecond)
 	}
 	return true
+}
+
+func (c Config) remoteExec(cmd string) (string, error) {
+	resp, err := callDaemon(DaemonRequest{Command: "exec", Payload: cmd})
+	if err == nil {
+		if resp.Error != "" {
+			return resp.Output, fmt.Errorf(resp.Error)
+		}
+		return resp.Output, nil
+	}
+
+	// Fallback to legacy SSH command
+	sshArgs := c.GetSSHArgs(cmd)
+	out, err := exec.Command("ssh", sshArgs...).CombinedOutput()
+	return string(out), err
+}
+
+func (c Config) remoteUpload(local, remote string) error {
+	resp, err := callDaemon(DaemonRequest{Command: "upload", Payload: local, Remote: remote})
+	if err == nil {
+		if resp.Error != "" {
+			return fmt.Errorf(resp.Error)
+		}
+		return nil
+	}
+
+	// Fallback to legacy SCP command
+	target := c.GetSCPTarget(remote)
+	scpArgs := c.GetSCPArgs()
+	scpArgs = append(scpArgs, local, target)
+	return exec.Command("scp", scpArgs...).Run()
 }
 
 func ensureWrapper(sdkPath string) string {
@@ -549,13 +593,9 @@ func run() {
 	}
 	fmt.Printf("[gios] Sending to %s...\n", targetDisp)
 
-	dest := conf.GetSCPTarget(conf.Deploy.Path)
-	scpArgs := conf.GetSCPArgs()
-	scpArgs = append(scpArgs, conf.Output, dest)
-
 	drawProgress("Uploading", 50)
-	if err := exec.Command("scp", scpArgs...).Run(); err != nil {
-		fmt.Println("\n[gios] Error uploading file via SCP.")
+	if err := conf.remoteUpload(conf.Output, conf.Deploy.Path); err != nil {
+		fmt.Printf("\n[gios] Error uploading file: %v\n", err)
 		return
 	}
 
@@ -583,17 +623,14 @@ func run() {
 		}
 		
 		destPlist := filepath.Join(conf.Deploy.Path, plistName)
-		scpPlistArgs := conf.GetSCPArgs()
-		scpPlistArgs = append(scpPlistArgs, localPlist, conf.GetSCPTarget(destPlist))
-		exec.Command("scp", scpPlistArgs...).Run()
+		conf.remoteUpload(localPlist, destPlist)
 		os.Remove("tmp_filter.plist")
 	}
 	drawProgress("Uploading", 100)
 
 	if isDylib {
 		fmt.Printf("[gios] Tweak detected. Triggering Respring to apply...\n")
-		sshArgs := conf.GetSSHArgs("killall -9 SpringBoard")
-		exec.Command("ssh", sshArgs...).Run()
+		conf.remoteExec("killall -9 SpringBoard")
 		fmt.Println("[gios] Respring triggered! Wait 2 seconds for injection.")
 		time.Sleep(2 * time.Second)
 		return
@@ -780,7 +817,7 @@ exit 0
 	out, err := exec.Command("dpkg-deb", "-Zgzip", "-b", stage, debName).CombinedOutput()
 	if err != nil {
 		fmt.Printf("\n[!] Error in dpkg-deb:\n%s\n", string(out))
-		fmt.Println("    Note: You need to install dpkg on your Mac (brew install dpkg)")
+		fmt.Println("    Note: You need to install dpkg (e.g., via your package manager)")
 	} else {
 		drawProgress("Done!", 100)
 		fmt.Printf("[+] Generated: %s\n", debName)
@@ -821,32 +858,25 @@ func installDeb() {
 	}
 	fmt.Printf("[gios] Installing on %s...\n", targetDisp)
 
-	dest := conf.GetSCPTarget("/tmp/" + debName)
-	scpArgs := conf.GetSCPArgs()
-	scpArgs = append(scpArgs, debName, dest)
-
-	err := exec.Command("scp", scpArgs...).Run()
-	if err != nil {
-		fmt.Println("[!] Error uploading the .deb to the device (SCP)")
+	if err := conf.remoteUpload(debName, "/tmp/"+debName); err != nil {
+		fmt.Printf("[!] Error uploading the .deb: %v\n", err)
 		return
 	}
 
 	fmt.Println("[gios] Running DPKG on the iDevice...")
-
 	dpkgCmd := "dpkg"
 	sshInstall := fmt.Sprintf("%s -i /tmp/%s && rm -f /tmp/%s", dpkgCmd, debName, debName)
 
-	sshArgs := conf.GetSSHArgs(sshInstall)
-	out, err := exec.Command("ssh", sshArgs...).CombinedOutput()
+	out, err := conf.remoteExec(sshInstall)
 	if err != nil {
-		fmt.Printf("[!] Installation failed (DPKG):\n%s\n", string(out))
+		fmt.Printf("[!] Installation failed (DPKG):\n%s\n", out)
 		return
 	}
-	fmt.Printf("[+] Installation successfully completed on the iPad!\n%s\n", string(out))
+	fmt.Printf("[+] Installation successfully completed on the iPad!\n%s\n", out)
+
 	if strings.HasSuffix(conf.Output, ".dylib") {
 		fmt.Println("[gios] Tweak detected. Triggering Respring to apply changes...")
-		sshArgsRespring := conf.GetSSHArgs("killall -9 SpringBoard")
-		exec.Command("ssh", sshArgsRespring...).Run()
+		conf.remoteExec("killall -9 SpringBoard")
 	}
 }
 
@@ -904,65 +934,60 @@ func connect() {
 		exec.Command("ssh-keygen", "-t", "rsa", "-b", "2048", "-f", sshKeyPath, "-N", "").Run()
 	}
 
-	fmt.Println("[gios] Checking existing SSH authorization...")
-	sshTestArgs := conf.GetSSHArgs("echo", "auth_ok")
-	// Insert ConnectTimeout after 'ssh'
-	sshTestArgs = append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=5"}, sshTestArgs...)
-
-	testCmd := exec.Command("ssh", sshTestArgs...)
-	if err := testCmd.Run(); err != nil {
-		fmt.Println("[gios] Passwordless login not configured or failed.")
-		fmt.Println("[gios] Sending SSH key to device (it may ask for your root password one last time)...")
+	fmt.Println("[gios] Checking existing SSH authorization (Native Go Client)...")
+	client, err := NewSSHClient(conf)
+	if err != nil {
+		fmt.Println("[gios] Key-based login failed or not configured. Trying password auth...")
+		fmt.Printf("[gios] Please enter the root password for %s (default: alpine): ", targetDisp)
+		bytePassword := prompt("Password", "alpine")
 		
-		target := "root@" + conf.Deploy.IP
-		port := "22"
-		if conf.Deploy.USB {
-			target = "root@127.0.0.1"
-			port = "2222"
+		client, err = NewSSHClientWithPassword(conf, bytePassword)
+		if err != nil {
+			fmt.Printf("[!] Could not connect with password either: %v\n", err)
+			return
 		}
-		
-		cmdCopy := exec.Command("ssh-copy-id", "-i", sshKeyPath, "-p", port, target)
-		cmdCopy.Stdin = os.Stdin
-		cmdCopy.Stdout = os.Stdout
-		cmdCopy.Stderr = os.Stderr
-		cmdCopy.Run()
-	} else {
-		fmt.Println("[gios] Identity confirmed. Key already installed.")
-	}
 
-	sshInfoArgs := conf.GetSSHArgs(`uname -n; uname -m; sw_vers -productVersion 2>/dev/null || echo 'Unknown'`)
-	sshInfoArgs = append([]string{"-o", "BatchMode=yes"}, sshInfoArgs...)
-	
-	infoCmd := exec.Command("ssh", sshInfoArgs...)
-	infoOut, _ := infoCmd.Output()
-	lines := strings.Split(strings.TrimSpace(string(infoOut)), "\n")
-	if len(lines) >= 3 {
-		name := strings.TrimSpace(lines[0])
-		arch := strings.TrimSpace(lines[1])
-		ver := strings.TrimSpace(lines[2])
-		fmt.Printf("[gios] Device Info: %s | %s | iOS %s\n", name, arch, ver)
-		saveDeviceData(conf.Deploy.IP, name, arch, ver)
+		fmt.Println("[gios] Installing SSH key for future passwordless logins...")
+		if err := client.InstallKey(sshKeyPath + ".pub"); err != nil {
+			fmt.Printf("[!] Failed to install public key: %v\n", err)
+			// Non-fatal, we can continue for this session
+		} else {
+			fmt.Println("[+] SSH key installed successfully.")
+		}
+	} else {
+		fmt.Println("[gios] Identity confirmed via Native Go Client.")
+	}
+	defer client.Close()
+
+	infoOut, err := client.Run(`uname -n; uname -m; sw_vers -productVersion 2>/dev/null || echo 'Unknown'`)
+	if err == nil {
+		lines := strings.Split(strings.TrimSpace(infoOut), "\n")
+		if len(lines) >= 3 {
+			name := strings.TrimSpace(lines[0])
+			arch := strings.TrimSpace(lines[1])
+			ver := strings.TrimSpace(lines[2])
+			fmt.Printf("[gios] Device Info: %s | %s | iOS %s\n", name, arch, ver)
+			saveDeviceData(conf.Deploy.IP, name, arch, ver)
+		}
 	}
 
 	os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".ssh"), 0700)
 
-	// Close any previous dangling socket
+	// Still start the OpenSSH Master for backward compatibility in scripts
 	sshExitArgs := conf.GetSSHArgs()
 	sshExitArgs = append([]string{"-O", "exit"}, sshExitArgs...)
 	exec.Command("ssh", sshExitArgs...).Run()
 
-	fmt.Println("[gios] Opening persistent background tunnel...")
-	
+	fmt.Println("[gios] Opening persistent background tunnel (OpenSSH Compatibility)...")
 	sshMasterArgs := []string{"-f", "-N", "-M", "-o", "ServerAliveInterval=60"}
 	sshMasterArgs = append(sshMasterArgs, conf.GetSSHArgs()...)
-	
-	cmd := exec.Command("ssh", sshMasterArgs...)
-
-	if err := cmd.Run(); err != nil {
-		fmt.Println("[!] Failed to establish background connection.")
+	if err := exec.Command("ssh", sshMasterArgs...).Run(); err != nil {
+		fmt.Println("[!] Warning: Could not establish OpenSSH background connection.")
 	} else {
-		fmt.Println("[+] Magic connection open in background! 'gios install' and 'gios run --watch' will fly.")
+		fmt.Println("[+] OpenSSH Magic connection open!")
 	}
+
+	fmt.Println("\n[gios] TIP: You can now run 'gios daemon' in another terminal for an even faster native Go experience.")
 }
 
 func ensureSDK(version, targetPath string) error {

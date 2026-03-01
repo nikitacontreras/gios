@@ -9,7 +9,7 @@ A sophisticated template for building Cydia Tweaks using Go. This tweak injects 
 - **Legacy WebKit Support**: Configured to work on old iOS versions (like iOS 5.1.1) thanks to the GIOS transpiler.
 
 ## 🛠 Prerequisites
-- **GIOS CLI**: Installed on your Mac.
+- **GIOS CLI**: Installed on your computer.
 - **iOS SDK**: Version 9.3 or similar (managed automatically by GIOS).
 - **Jailbroken Device**: iPad/iPhone with MobileSubstrate or Substitute installed.
 
