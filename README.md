@@ -119,3 +119,30 @@ As new versions enter the main repository branch, upgrading your global GIOS CLI
 ```bash
 gios update
 ```
+
+---
+
+## 🌟 Examples
+
+Jumpstart your development with these ready-to-use templates:
+
+```text
+example/
+├── 📂 hello_world/        Simple "Hello World" CLI.
+├── 📂 device_info/        Fetch iOS hardware & system metadata.
+├── 📂 web_debug_server/   Premium Web Dashboard & Remote Controls.
+├── 📂 sys_notify_proxy/   Real-time Darwin Notification Interceptor.
+├── 📂 tweak_hello/        SpringBoard Tweak: UI Alert Message Box.
+└── 📂 tweak_status_bar/   System Tweak: Background Heartbeat Logger.
+```
+
+| Type | Project | Description |
+|:--- |:--- |:--- |
+| **CLI** | [Hello World](example/hello_world/README.md) | Basic Go execution on iOS. |
+| **CLI**| [Device Info](example/device_info/README.md) | Deep system diagnostics. |
+| **Daemon** | [Web Server](example/web_debug_server/README.md) | **Recommended!** Premium diagnostics dashboard. |
+| **Daemon** | [Sys Notify](example/sys_notify_proxy/README.md) | Listen to global OS events. |
+| **Tweak** | [Hello Tweak](example/tweak_hello/README.md) | Inject code into SpringBoard. |
+| **Tweak** | [Status Bar](example/tweak_status_bar/README.md) | Persistent UI modification. |
+
+For a complete breakdown of all examples, see the [Examples Directory Readme](example/README.md).
