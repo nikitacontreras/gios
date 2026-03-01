@@ -1,0 +1,16 @@
+{
+    "name": "sys_notify_proxy",
+    "package_id": "com.gios.notifyproxy",
+    "version": "1.0.0",
+    "arch": "armv7",
+    "go_version": "go1.14.15",
+    "sdk_version": "9.3",
+    "entitlements": "none",
+    "daemon": true,
+    "output": "sys_notify_proxy",
+    "main": "main.go",
+    "deploy": {
+        "ip": "10.0.0.13",
+        "path": "/usr/bin/sys_notify_proxy"
+    }
+}

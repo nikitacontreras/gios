@@ -1,0 +1,15 @@
+{
+    "name": "tweak_status_bar",
+    "package_id": "com.gios.statusbar",
+    "version": "1.0.0",
+    "arch": "armv7",
+    "go_version": "go1.14.15",
+    "sdk_version": "9.3",
+    "entitlements": "none",
+    "output": "tweak_status_bar.dylib",
+    "main": "main.go",
+    "deploy": {
+        "ip": "10.0.0.13",
+        "path": "/Library/MobileSubstrate/DynamicLibraries/tweak_status_bar.dylib"
+    }
+}

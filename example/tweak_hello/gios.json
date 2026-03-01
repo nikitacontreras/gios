@@ -1,0 +1,14 @@
+{
+    "name": "tweak_hello",
+    "package_id": "com.gios.tweakhello",
+    "version": "1.0.0",
+    "go_version": "go1.14.15",
+    "sdk_version": "9.3",
+    "arch": "armv7",
+    "output": "tweak_hello.dylib",
+    "main": "main.go",
+    "deploy": {
+        "ip": "10.0.0.13",
+        "path": "/Library/MobileSubstrate/DynamicLibraries"
+    }
+}

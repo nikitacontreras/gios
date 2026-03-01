@@ -1,0 +1,14 @@
+{
+    "name": "device_info",
+    "version": "1.0.0",
+    "go_version": "go1.14.15",
+    "sdk_version": "9.3",
+    "arch": "armv7",
+    "output": "out_info",
+    "main": "main.go",
+    "entitlements": "none",
+    "deploy": {
+        "ip": "10.0.0.13",
+        "path": "/var/root/out_info"
+    }
+}
