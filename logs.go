@@ -5,16 +5,23 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 )
 
 func runLogs() {
 	conf := loadConfig()
-	if conf.Deploy.IP == "" {
+	if !conf.Deploy.USB && conf.Deploy.IP == "" {
 		fmt.Printf("%sError: Target Device IP not set in gios.json.%s\n", ColorRed, ColorReset)
 		return
+	}
+
+	targetDisp := conf.Deploy.IP
+	if conf.Deploy.USB {
+		targetDisp = "USB Device"
+		if !ensureUSBTunnel(conf) {
+			return
+		}
 	}
 
 	verbose := false
@@ -25,9 +32,7 @@ func runLogs() {
 		}
 	}
 
-	sshKeyPath := filepath.Join(giosDir, "id_rsa")
-	
-	fmt.Printf("%s[gios]%s Searching for active log agent on %s...\n", ColorCyan, ColorReset, conf.Deploy.IP)
+	fmt.Printf("%s[gios]%s Searching for active log agent on %s...\n", ColorCyan, ColorReset, targetDisp)
 
 	// List of commands for logging.
 	logCommands := []string{
@@ -48,14 +53,9 @@ L:
 			fmt.Printf("\r[gios] Checking log agents: [%d/%d] ", i+1, len(logCommands))
 		}
 		
-		sshArgs := []string{
-			"-i", sshKeyPath,
-			"-o", "BatchMode=yes",
-			"-o", "ConnectTimeout=3",
-			"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-			"root@" + conf.Deploy.IP,
-			logCmd,
-		}
+		sshArgs := conf.GetSSHArgs(logCmd)
+		// Insert BatchMode and ConnectTimeout for the diagnostic phase
+		sshArgs = append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=3"}, sshArgs...)
 
 		cmd := exec.Command("ssh", sshArgs...)
 		stdout, _ := cmd.StdoutPipe()

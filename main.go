@@ -34,6 +34,7 @@ type Config struct {
 	Deploy       struct {
 		IP   string `json:"ip"`
 		Path string `json:"path"`
+		USB  bool   `json:"usb"`
 	} `json:"deploy"`
 }
 
@@ -169,6 +170,71 @@ func getFlagValue(flagName string) string {
 		}
 	}
 	return ""
+}
+
+func (c Config) GetSSHArgs(extra ...string) []string {
+	sshKeyPath := filepath.Join(giosDir, "id_rsa")
+	target := "root@" + c.Deploy.IP
+	args := []string{"-i", sshKeyPath, "-o", "ControlPath=~/.ssh/gios-%r@%h:%p"}
+	if c.Deploy.USB {
+		target = "root@127.0.0.1"
+		args = append(args, "-p", "2222")
+	}
+	args = append(args, target)
+	return append(args, extra...)
+}
+
+func (c Config) GetSCPArgs() []string {
+	sshKeyPath := filepath.Join(giosDir, "id_rsa")
+	args := []string{"-i", sshKeyPath, "-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/gios-%r@%h:%p"}
+	if c.Deploy.USB {
+		args = append(args, "-P", "2222")
+	}
+	return args
+}
+
+func (c Config) GetSCPTarget(filePath string) string {
+	target := "root@" + c.Deploy.IP
+	if c.Deploy.USB {
+		target = "root@127.0.0.1"
+	}
+	return target + ":" + filePath
+}
+
+func ensureUSBTunnel(conf Config) bool {
+	if !conf.Deploy.USB {
+		return true
+	}
+
+	// Check for idevice_id
+	if _, err := exec.LookPath("idevice_id"); err != nil {
+		fmt.Printf("%s[!] Error: 'idevice_id' not found. Please install libimobiledevice (brew install libimobiledevice).%s\n", ColorRed, ColorReset)
+		return false
+	}
+
+	// Check for iproxy
+	if _, err := exec.LookPath("iproxy"); err != nil {
+		fmt.Printf("%s[!] Error: 'iproxy' not found. Please install libimobiledevice.%s\n", ColorRed, ColorReset)
+		return false
+	}
+
+	// Check if any device is connected
+	out, _ := exec.Command("idevice_id", "-l").Output()
+	if len(strings.TrimSpace(string(out))) == 0 {
+		fmt.Printf("%s[!] Warning: No iOS device detected via USB. Ensure it's plugged in.%s\n", ColorYellow, ColorReset)
+		return false
+	}
+
+	// Check if iproxy is already listening on 2222
+	checkCmd := exec.Command("nc", "-z", "127.0.0.1", "2222")
+	if err := checkCmd.Run(); err != nil {
+		fmt.Printf("%s[gios] (USB Mode) Initializing usbmuxd tunnel (2222 -> 22)...%s\n", ColorCyan, ColorReset)
+		go func() {
+			exec.Command("iproxy", "2222", "22").Run()
+		}()
+		time.Sleep(1500 * time.Millisecond)
+	}
+	return true
 }
 
 func ensureWrapper(sdkPath string) string {
@@ -461,7 +527,7 @@ func build() {
 func run() {
 	conf := loadConfig()
 	isDylib := strings.HasSuffix(conf.Output, ".dylib")
-	if conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX" {
+	if !conf.Deploy.USB && (conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX") {
 		fmt.Println("[gios] Error: Deployment IP is not configured.")
 		return
 	}
@@ -474,19 +540,21 @@ func run() {
 		}
 	}
 
-	fmt.Printf("[gios] Sending to %s...\n", conf.Deploy.IP)
-	dest := fmt.Sprintf("root@%s:%s", conf.Deploy.IP, conf.Deploy.Path)
+	targetDisp := conf.Deploy.IP
+	if conf.Deploy.USB {
+		targetDisp = "USB Device"
+		if !ensureUSBTunnel(conf) {
+			return
+		}
+	}
+	fmt.Printf("[gios] Sending to %s...\n", targetDisp)
 
-	sshKey := filepath.Join(giosDir, "id_rsa")
-
-	cmd := exec.Command("scp",
-		"-i", sshKey,
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-		conf.Output, dest)
+	dest := conf.GetSCPTarget(conf.Deploy.Path)
+	scpArgs := conf.GetSCPArgs()
+	scpArgs = append(scpArgs, conf.Output, dest)
 
 	drawProgress("Uploading", 50)
-	if err := cmd.Run(); err != nil {
+	if err := exec.Command("scp", scpArgs...).Run(); err != nil {
 		fmt.Println("\n[gios] Error uploading file via SCP.")
 		return
 	}
@@ -515,20 +583,17 @@ func run() {
 		}
 		
 		destPlist := filepath.Join(conf.Deploy.Path, plistName)
-		scpPlist := exec.Command("scp", "-i", sshKey, "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", localPlist, "root@"+conf.Deploy.IP+":"+destPlist)
-		scpPlist.Run()
+		scpPlistArgs := conf.GetSCPArgs()
+		scpPlistArgs = append(scpPlistArgs, localPlist, conf.GetSCPTarget(destPlist))
+		exec.Command("scp", scpPlistArgs...).Run()
 		os.Remove("tmp_filter.plist")
 	}
 	drawProgress("Uploading", 100)
 
 	if isDylib {
 		fmt.Printf("[gios] Tweak detected. Triggering Respring to apply...\n")
-		respringCmd := exec.Command("ssh",
-			"-i", sshKey,
-			"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-			"root@"+conf.Deploy.IP,
-			"killall -9 SpringBoard")
-		respringCmd.Run()
+		sshArgs := conf.GetSSHArgs("killall -9 SpringBoard")
+		exec.Command("ssh", sshArgs...).Run()
 		fmt.Println("[gios] Respring triggered! Wait 2 seconds for injection.")
 		time.Sleep(2 * time.Second)
 		return
@@ -547,13 +612,22 @@ func run() {
 		fmt.Printf("[gios] Executing %s on device...\n", runPath)
 		fmt.Println("--------------------------------------------------")
 
-		sshCmd := exec.Command("ssh",
-			"-i", sshKey,
-			"-o", "ControlMaster=auto",
-			"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-			"-t", "root@"+conf.Deploy.IP,
-			fmt.Sprintf("chmod +x %s && env GOGC=20 GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1 %s", runPath, runPath))
+		sshFullHost := "root@" + conf.Deploy.IP
+		sshPort := "22"
+		if conf.Deploy.USB {
+			sshFullHost = "root@127.0.0.1"
+			sshPort = "2222"
+		}
 
+		sshArgs := []string{
+			"-i", filepath.Join(giosDir, "id_rsa"),
+			"-o", "ControlMaster=auto",
+			"-o", "ControlPath=~ ~/.ssh/gios-%r@%h:%p",
+			"-t", "-p", sshPort, sshFullHost,
+			fmt.Sprintf("chmod +x %s && env GOGC=20 GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1 %s", runPath, runPath),
+		}
+
+		sshCmd := exec.Command("ssh", sshArgs...)
 		sshCmd.Stdin = os.Stdin
 		sshCmd.Stdout = os.Stdout
 		sshCmd.Stderr = os.Stderr
@@ -733,21 +807,25 @@ func installDeb() {
 
 	debName := fmt.Sprintf("%s_%s_%s.deb", pkgID, version, debArch)
 
-	if conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX" {
+	if !conf.Deploy.USB && (conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX") {
 		fmt.Println("[gios] Error: Deployment IP not configured to install the .deb")
 		return
 	}
 
-	fmt.Printf("[gios] Installing on %s...\n", conf.Deploy.IP)
-	dest := fmt.Sprintf("root@%s:/tmp/%s", conf.Deploy.IP, debName)
+	targetDisp := conf.Deploy.IP
+	if conf.Deploy.USB {
+		targetDisp = "USB Device"
+		if !ensureUSBTunnel(conf) {
+			return
+		}
+	}
+	fmt.Printf("[gios] Installing on %s...\n", targetDisp)
 
-	sshKey := filepath.Join(giosDir, "id_rsa")
+	dest := conf.GetSCPTarget("/tmp/" + debName)
+	scpArgs := conf.GetSCPArgs()
+	scpArgs = append(scpArgs, debName, dest)
 
-	err := exec.Command("scp",
-		"-i", sshKey,
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-		debName, dest).Run()
+	err := exec.Command("scp", scpArgs...).Run()
 	if err != nil {
 		fmt.Println("[!] Error uploading the .deb to the device (SCP)")
 		return
@@ -756,27 +834,19 @@ func installDeb() {
 	fmt.Println("[gios] Running DPKG on the iDevice...")
 
 	dpkgCmd := "dpkg"
-	if conf.Arch == "arm64" {
-		dpkgCmd = "dpkg"
-	}
-
 	sshInstall := fmt.Sprintf("%s -i /tmp/%s && rm -f /tmp/%s", dpkgCmd, debName, debName)
-	out, err := exec.Command("ssh",
-		"-i", sshKey,
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-		"root@"+conf.Deploy.IP, sshInstall).CombinedOutput()
+
+	sshArgs := conf.GetSSHArgs(sshInstall)
+	out, err := exec.Command("ssh", sshArgs...).CombinedOutput()
 	if err != nil {
 		fmt.Printf("[!] Installation failed (DPKG):\n%s\n", string(out))
 		return
 	}
-
 	fmt.Printf("[+] Installation successfully completed on the iPad!\n%s\n", string(out))
-
-	// Tweak check
 	if strings.HasSuffix(conf.Output, ".dylib") {
 		fmt.Println("[gios] Tweak detected. Triggering Respring to apply changes...")
-		exec.Command("ssh", "-i", filepath.Join(giosDir, "id_rsa"), "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", "root@"+conf.Deploy.IP, "killall -9 SpringBoard").Run()
+		sshArgsRespring := conf.GetSSHArgs("killall -9 SpringBoard")
+		exec.Command("ssh", sshArgsRespring...).Run()
 	}
 }
 
@@ -802,19 +872,31 @@ func drawProgress(step string, percent int) {
 }
 
 func connect() {
-	var ip string
+	conf := loadConfig()
 	if len(os.Args) >= 3 {
-		ip = os.Args[2]
-	} else {
-		conf := loadConfig()
-		if conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX" {
-			fmt.Println("Error: IP not provided and not found in gios.json")
-			return
+		arg := strings.ToLower(os.Args[2])
+		if arg == "usb" {
+			conf.Deploy.USB = true
+			conf.Deploy.IP = "127.0.0.1"
+		} else {
+			conf.Deploy.IP = os.Args[2]
 		}
-		ip = conf.Deploy.IP
 	}
 
-	fmt.Printf("[gios] Setting up background SSH connection to %s...\n", ip)
+	targetDisp := conf.Deploy.IP
+	if conf.Deploy.USB {
+		targetDisp = "USB Device"
+		if !ensureUSBTunnel(conf) {
+			return
+		}
+	}
+
+	if !conf.Deploy.USB && (conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX") {
+		fmt.Println("Error: IP not provided and not found in gios.json")
+		return
+	}
+
+	fmt.Printf("[gios] Setting up background SSH connection to %s...\n", targetDisp)
 
 	sshKeyPath := filepath.Join(giosDir, "id_rsa")
 	if _, err := os.Stat(sshKeyPath); os.IsNotExist(err) {
@@ -823,11 +905,23 @@ func connect() {
 	}
 
 	fmt.Println("[gios] Checking existing SSH authorization...")
-	testCmd := exec.Command("ssh", "-i", sshKeyPath, "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "root@"+ip, "echo auth_ok")
+	sshTestArgs := conf.GetSSHArgs("echo", "auth_ok")
+	// Insert ConnectTimeout after 'ssh'
+	sshTestArgs = append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=5"}, sshTestArgs...)
+
+	testCmd := exec.Command("ssh", sshTestArgs...)
 	if err := testCmd.Run(); err != nil {
 		fmt.Println("[gios] Passwordless login not configured or failed.")
 		fmt.Println("[gios] Sending SSH key to device (it may ask for your root password one last time)...")
-		cmdCopy := exec.Command("ssh-copy-id", "-i", sshKeyPath, "root@"+ip)
+		
+		target := "root@" + conf.Deploy.IP
+		port := "22"
+		if conf.Deploy.USB {
+			target = "root@127.0.0.1"
+			port = "2222"
+		}
+		
+		cmdCopy := exec.Command("ssh-copy-id", "-i", sshKeyPath, "-p", port, target)
 		cmdCopy.Stdin = os.Stdin
 		cmdCopy.Stdout = os.Stdout
 		cmdCopy.Stderr = os.Stderr
@@ -836,7 +930,10 @@ func connect() {
 		fmt.Println("[gios] Identity confirmed. Key already installed.")
 	}
 
-	infoCmd := exec.Command("ssh", "-i", sshKeyPath, "-o", "BatchMode=yes", "root@"+ip, `uname -n; uname -m; sw_vers -productVersion 2>/dev/null || echo 'Unknown'`)
+	sshInfoArgs := conf.GetSSHArgs(`uname -n; uname -m; sw_vers -productVersion 2>/dev/null || echo 'Unknown'`)
+	sshInfoArgs = append([]string{"-o", "BatchMode=yes"}, sshInfoArgs...)
+	
+	infoCmd := exec.Command("ssh", sshInfoArgs...)
 	infoOut, _ := infoCmd.Output()
 	lines := strings.Split(strings.TrimSpace(string(infoOut)), "\n")
 	if len(lines) >= 3 {
@@ -844,21 +941,22 @@ func connect() {
 		arch := strings.TrimSpace(lines[1])
 		ver := strings.TrimSpace(lines[2])
 		fmt.Printf("[gios] Device Info: %s | %s | iOS %s\n", name, arch, ver)
-		saveDeviceData(ip, name, arch, ver)
+		saveDeviceData(conf.Deploy.IP, name, arch, ver)
 	}
 
 	os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".ssh"), 0700)
 
-	// Close any previous dangling socket to avoid "socket already exists" error
-	exec.Command("ssh", "-O", "exit", "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", "root@"+ip).Run()
+	// Close any previous dangling socket
+	sshExitArgs := conf.GetSSHArgs()
+	sshExitArgs = append([]string{"-O", "exit"}, sshExitArgs...)
+	exec.Command("ssh", sshExitArgs...).Run()
 
 	fmt.Println("[gios] Opening persistent background tunnel...")
-	cmd := exec.Command("ssh",
-		"-f", "-N", "-M",
-		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-		"-o", "ServerAliveInterval=60",
-		"-i", sshKeyPath,
-		"root@"+ip)
+	
+	sshMasterArgs := []string{"-f", "-N", "-M", "-o", "ServerAliveInterval=60"}
+	sshMasterArgs = append(sshMasterArgs, conf.GetSSHArgs()...)
+	
+	cmd := exec.Command("ssh", sshMasterArgs...)
 
 	if err := cmd.Run(); err != nil {
 		fmt.Println("[!] Failed to establish background connection.")
@@ -874,26 +972,27 @@ func ensureSDK(version, targetPath string) error {
 }
 
 func disconnect() {
-	var ip string
+	conf := loadConfig()
 	if len(os.Args) >= 3 {
-		ip = os.Args[2]
-	} else {
-		conf := loadConfig()
-		if conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX" {
-			fmt.Println("Error: IP not provided and not found in gios.json")
-			return
+		if os.Args[2] == "usb" {
+			conf.Deploy.USB = true
+		} else {
+			conf.Deploy.IP = os.Args[2]
 		}
-		ip = conf.Deploy.IP
 	}
 
-	fmt.Printf("[gios] Closing connection to %s...\n", ip)
+	targetDisp := conf.Deploy.IP
+	if conf.Deploy.USB {
+		targetDisp = "USB Device"
+	}
 
-	cmd := exec.Command("ssh", "-O", "exit", "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", "root@"+ip)
-	err := cmd.Run()
+	fmt.Printf("[gios] Closing connection to %s...\n", targetDisp)
+
+	sshExitArgs := conf.GetSSHArgs()
+	sshExitArgs = append([]string{"-O", "exit"}, sshExitArgs...)
+	err := exec.Command("ssh", sshExitArgs...).Run()
 	if err != nil {
 		fmt.Println("[gios] Connection was already closed or not found.")
-		home, _ := os.UserHomeDir()
-		os.Remove(filepath.Join(home, ".ssh", fmt.Sprintf("gios-root@%s:22", ip)))
 	} else {
 		fmt.Println("[gios] Connection closed successfully.")
 	}
@@ -1257,7 +1356,18 @@ func initProject() {
 		conf.Entitlements = "none"
 	}
 
-	conf.Deploy.IP = prompt("\n6. Target Device IP Address", "192.168.1.XX")
+	fmt.Println("\n6. Deployment Method:")
+	fmt.Println("   [1] Wi-Fi (IP Address)")
+	fmt.Println("   [2] USB (libimobiledevice/iproxy)")
+	deployOption := prompt("   Option", "1")
+
+	if deployOption == "2" {
+		conf.Deploy.USB = true
+		conf.Deploy.IP = "127.0.0.1"
+	} else {
+		conf.Deploy.IP = prompt("   Target Device IP Address", "192.168.1.XX")
+	}
+
 	conf.Output = "out_" + conf.Name
 	conf.Main = "main.go"
 
