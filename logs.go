@@ -10,17 +10,36 @@ import (
 )
 
 func runLogs() {
-	conf := loadConfig()
-	if !conf.Deploy.USB && conf.Deploy.IP == "" {
+	// Attempt to load config, but don't die if it fails and we just want --syslog
+	conf, err := loadConfigSafe()
+	
+	isSyslog := false
+	for _, arg := range os.Args {
+		if arg == "--syslog" {
+			isSyslog = true
+		}
+	}
+
+	if err != nil && !isSyslog {
+		fmt.Printf("%sError: gios.json not found. Run 'gios init' first or use --syslog for USB-only logs.%s\n", ColorRed, ColorReset)
+		return
+	}
+
+	if !isSyslog && !conf.Deploy.USB && conf.Deploy.IP == "" {
 		fmt.Printf("%sError: Target Device IP not set in gios.json.%s\n", ColorRed, ColorReset)
 		return
 	}
 
-	targetDisp := conf.Deploy.IP
-	if conf.Deploy.USB {
-		targetDisp = "USB Device"
-		if !ensureUSBTunnel(conf) {
-			return
+	targetDisp := "Unknown"
+	projectName := ""
+	if err == nil {
+		targetDisp = conf.Deploy.IP
+		projectName = conf.Name
+		if conf.Deploy.USB {
+			targetDisp = "USB Device"
+			if !ensureUSBTunnel(conf) {
+				return
+			}
 		}
 	}
 
@@ -30,6 +49,22 @@ func runLogs() {
 			verbose = true
 			break
 		}
+	}
+
+	if isSyslog {
+		fmt.Printf("%s[gios]%s Streaming native syslog via USB (idevicesyslog)...\n", ColorCyan, ColorReset)
+		cmd := exec.Command("idevicesyslog")
+		stdout, _ := cmd.StdoutPipe()
+		if err := cmd.Start(); err != nil {
+			fmt.Printf("%s[!] Error:%s idevicesyslog failed. Is it installed? %v\n", ColorRed, ColorReset, err)
+			return
+		}
+
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			printLogLine(scanner.Text(), projectName)
+		}
+		return
 	}
 
 	fmt.Printf("%s[gios]%s Searching for active log agent on %s...\n", ColorCyan, ColorReset, targetDisp)

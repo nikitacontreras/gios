@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type DaemonRequest struct {
@@ -21,7 +22,18 @@ type DaemonResponse struct {
 
 func runDaemon() {
 	conf := loadConfig()
-	fmt.Printf("[gios] Starting native SSH daemon for %s...\n", conf.Deploy.IP)
+	if (len(os.Args) >= 3 && strings.ToLower(os.Args[2]) == "usb") || conf.Deploy.USB {
+		conf.Deploy.USB = true
+		conf.Deploy.IP = "127.0.0.1"
+	}
+
+	targetDisp := conf.Deploy.IP
+	if conf.Deploy.USB {
+		targetDisp = "USB Device (127.0.0.1:2222)"
+		ensureUSBTunnel(conf)
+	}
+
+	fmt.Printf("[gios] Starting native SSH daemon for %s...\n", targetDisp)
 
 	client, err := NewSSHClient(conf)
 	if err != nil {
@@ -35,13 +47,14 @@ func runDaemon() {
 
 	l, err := net.Listen("unix", socketPath)
 	if err != nil {
-		fmt.Printf("[!] Daemon failed to listen: %v\n", err)
+		fmt.Printf("[!] Daemon failed to listen on socket %s: %v\n", socketPath, err)
 		return
 	}
 	defer l.Close()
 	os.Chmod(socketPath, 0700)
 
-	fmt.Println("[+] Daemon ready. Listening for commands...")
+	fmt.Println("[+] Daemon ready. Listening for CLI commands on " + socketPath)
+	fmt.Println("    (This is a background service. Use 'gios run' or 'gios logs' in another terminal)")
 
 	for {
 		conn, err := l.Accept()

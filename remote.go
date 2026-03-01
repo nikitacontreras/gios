@@ -56,6 +56,11 @@ func NewSSHClient(c Config) (*SSHClient, error) {
 			},
 		},
 	}
+	sshConfig.HostKeyAlgorithms = []string{
+		ssh.KeyAlgoRSA,
+		ssh.KeyAlgoED25519,
+		ssh.KeyAlgoECDSA256,
+	}
 
 	client, err := ssh.Dial("tcp", host+":"+port, sshConfig)
 	if err != nil {
@@ -92,6 +97,11 @@ func NewSSHClientWithPassword(c Config, password string) (*SSHClient, error) {
 				"aes128-cbc", "3des-cbc",
 			},
 		},
+	}
+	sshConfig.HostKeyAlgorithms = []string{
+		ssh.KeyAlgoRSA,
+		ssh.KeyAlgoED25519,
+		ssh.KeyAlgoECDSA256,
 	}
 
 	client, err := ssh.Dial("tcp", host+":"+port, sshConfig)
@@ -168,6 +178,25 @@ func (s *SSHClient) Upload(localPath, remotePath string) error {
 	}()
 
 	return session.Run("scp -t " + remotePath)
+}
+// Download transfers a remote file to a local path using 'cat' for maximum compatibility
+func (s *SSHClient) Download(remotePath, localPath string) error {
+	session, err := s.client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+
+	localFile, err := os.Create(localPath)
+	if err != nil {
+		return err
+	}
+	defer localFile.Close()
+
+	// Using cat is more reliable on legacy iOS than scp protocol handshakes
+	session.Stdout = localFile
+	err = session.Run("cat \"" + remotePath + "\"")
+	return err
 }
 
 // Close terminates the connection
