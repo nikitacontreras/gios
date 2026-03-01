@@ -28,6 +28,7 @@ No complex theos setup, zero-hassle compiler flags, and a modern CLI developer e
 - **Automated Deployments**: Connect to your iDevice once to generate and register SSH keys. Subsequently deploy via persistent `ControlMaster` socket without typing a password again.
 - **Native Packaging**: Easily compile and package native Cydia `.deb` packages with proper control files and metadata.
 - **Daemon Mode**: Set `"daemon": true` in your configuration, and GIOS will construct the Plist and install scripts to run your application in the background forever on the device.
+- **Headers & RE**: Automatically extract Objective-C classes and methods from any system binary (like SpringBoard) and generate native Go proxies for them via `gios headers`.
 - **Self-Updating**: Fetches the newest binary release from its GitHub repository via `gios update`.
 
 ---
@@ -50,7 +51,7 @@ git clone https://github.com/nikitacontreras/gios.git
 cd gios
 .\install.ps1
 ```
-*(On Windows, you must have Go installed and accessible from your `$env:PATH`. On UNIX, you will additionally need `dpkg` installed (e.g. `brew install dpkg`) to use the local `.deb` generator).*
+*(On Windows, you must have Go installed and accessible from your `$env:PATH`. On UNIX, you will additionally need `dpkg` installed (e.g., via your package manager) to use the local `.deb` generator).*
 
 ---
 
@@ -142,6 +143,7 @@ example/
 | **CLI**| [Device Info](example/device_info/README.md) | Deep system diagnostics. |
 | **Daemon** | [Web Server](example/web_debug_server/README.md) | **Recommended!** Premium diagnostics dashboard. |
 | **Daemon** | [Sys Notify](example/sys_notify_proxy/README.md) | Listen to global OS events. |
+| **Advanced**| [Headers RE](example/headers/README.md) | **NEW!** Auto-generate Go APIs from iOS binaries. |
 | **Tweak** | [Hello Tweak](example/tweak_hello/README.md) | Inject code into SpringBoard. |
 | **Tweak** | [Status Bar](example/tweak_status_bar/README.md) | Persistent UI modification. |
 

@@ -90,7 +90,33 @@ func runDoctor() {
 		fmt.Printf("%sOK%s\n", ColorGreen, ColorReset)
 	}
 
-	// 5. Config Check
+	fmt.Print("Checking dpkg (packaging)... ")
+	if _, err := exec.LookPath("dpkg-deb"); err != nil {
+		fmt.Printf("%sNOT FOUND%s (Install 'dpkg' to use the package/install commands)\n", ColorYellow, ColorReset)
+		warnings++
+	} else {
+		fmt.Printf("%sOK%s\n", ColorGreen, ColorReset)
+	}
+
+	// 5. libimobiledevice Check
+	fmt.Print("Checking libimobiledevice (USB)... ")
+	hasIdeviceId := false
+	if _, err := exec.LookPath("idevice_id"); err == nil {
+		hasIdeviceId = true
+	}
+	hasIproxy := false
+	if _, err := exec.LookPath("iproxy"); err == nil {
+		hasIproxy = true
+	}
+
+	if hasIdeviceId && hasIproxy {
+		fmt.Printf("%sFOUND%s (USB development supported via iproxy)\n", ColorGreen, ColorReset)
+	} else {
+		fmt.Printf("%sLIMITED%s (Install libimobiledevice for fast USB deployment)\n", ColorYellow, ColorReset)
+		warnings++
+	}
+
+	// 6. Config Check
 	fmt.Print("Checking gios.json... ")
 	if _, err := os.Stat("gios.json"); os.IsNotExist(err) {
 		fmt.Printf("%sNOT FOUND%s (Run in a project folder)\n", ColorYellow, ColorReset)

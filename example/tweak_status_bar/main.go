@@ -1,15 +1,22 @@
 package main
 
 /*
+#cgo CFLAGS: -x objective-c
 #cgo LDFLAGS: -framework Foundation -framework UIKit
-#include <Foundation/Foundation.h>
-#include <UIKit/UIKit.h>
+#ifdef __OBJC__
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#endif
 #include <stdio.h>
 
-// Constructor that runs when the dylib is injected into SpringBoard
+// Forward declaration of the Go function
+extern void TweakEntry();
+
+// Constructor: runs when the dylib is loaded
 __attribute__((constructor))
 static void init_tweak() {
-    printf("[GIOS] Status Bar Tweak loaded inside SpringBoard\n");
+    printf("[GIOS] Tweak loaded. Initializing Go Bridge...\n");
+    TweakEntry(); // Start the Go logic
 }
 */
 import "C"
@@ -18,27 +25,21 @@ import (
 	"time"
 )
 
-// TweakEntry is protected from GC by cgo.
-// It will be called if you manually invoke it from C, 
-// but for a passive "heartbeat" tweak, we use a goroutine.
-
-func main() {
-    // This part is rarely reached in a dylib unless manually called.
-}
+func main() {}
 
 //export TweakEntry
 func TweakEntry() {
-	fmt.Println("[GIOS] TweakEntry started. Heartbeat active.")
-	
-	// Example of a background heartbeat running inside the SpringBoard process
+	// CRITICAL: On old devices, we MUST give SpringBoard time to breathe
+	// before starting heavy Go routines/logging.
 	go func() {
+		// Wait 10 seconds for SpringBoard to settle
+		time.Sleep(10 * time.Second)
+		
+		fmt.Println("[GIOS] Heartbeat service started safely after delay.")
+		
 		counter := 0
 		for {
-			fmt.Printf("[GIOS] Heartbeat #%d from SpringBoard (PID: %d)\n", counter, time.Now().Unix())
-			
-			// Here you would eventually add MSHookMessageEx calls via CGO
-			// to modify UIStatusBar methods directly.
-			
+			fmt.Printf("[GIOS] SpringBoard Heartbeat #%d (Still alive!)\n", counter)
 			counter++
 			time.Sleep(10 * time.Second)
 		}

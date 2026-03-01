@@ -20,6 +20,24 @@ var (
 	BuildTime  = "unknown"
 )
 
+const RemoteAssetsURL = "https://raw.githubusercontent.com/nikitacontreras/gios-platform-assets/main/assets.json"
+
+type AssetManifest struct {
+	SDKs []struct {
+		Name     string `json:"name"`
+		Platform string `json:"platform"`
+		URL      string `json:"url"`
+		Hash     string `json:"hash,omitempty"`
+	} `json:"sdks"`
+	DDIs []struct {
+		Version  string `json:"version"`
+		Platform string `json:"platform"`
+		URL      string `json:"url"`
+		SigURL   string `json:"sig_url"`
+		Hash     string `json:"hash,omitempty"`
+	} `json:"ddis"`
+}
+
 type Config struct {
 	Name         string `json:"name"`
 	PackageID    string `json:"package_id"`
@@ -34,6 +52,7 @@ type Config struct {
 	Deploy       struct {
 		IP   string `json:"ip"`
 		Path string `json:"path"`
+		USB  bool   `json:"usb"`
 	} `json:"deploy"`
 }
 
@@ -54,30 +73,8 @@ func main() {
 		return
 	}
 
-	if len(os.Args) < 2 {
-		fmt.Println("GIOS - The modern build system for legacy & modern iOS")
-		fmt.Println("======================================================")
-		fmt.Printf("Version: %s (Built: %s)\n\n", AppVersion, BuildTime)
-		fmt.Println("Usage: gios <command>")
-		fmt.Println("\nAvailable commands:")
-		fmt.Println("  init       - Initializes a new project (Interactive Setup)")
-		fmt.Println("  build      - Builds and signs the binary using gios.json configuration")
-		fmt.Println("               (Use '--unsafe' to transpile vendor dependencies)")
-		fmt.Println("  run        - Builds, signs and sends the binary to the device via SCP")
-		fmt.Println("               (Use 'run --watch' to execute and stream output)")
-		fmt.Println("               (Use '--unsafe' to transpile vendor dependencies)")
-		fmt.Println("  package    - Prepares the binary in a .deb file (Cydia)")
-		fmt.Println("  install    - Packages and automatically installs the .deb on the iDevice (DPKG)")
-		fmt.Println("  connect    - Opens a persistent connection to the device for faster deploys")
-		fmt.Println("  disconnect - Closes the active persistent connection")
-		fmt.Println("  update     - Updates Gios CLI from GitHub to the latest release")
-		fmt.Println("  sdk        - Manages iOS SDKs from Theos (list, add, remove)")
-		fmt.Println("  analyze    - Scans dependencies for legacy compatibility (risk factors)")
-		fmt.Println("  doctor     - Diagnoses local environment for build readiness")
-		fmt.Println("  diff       - Shows what changes gios would apply to a specific file")
-		fmt.Println("  logs       - Streams syslog from the device for debugging")
-		fmt.Println("  watch      - Automatically builds and runs on file changes (alias for run --watch)")
-		fmt.Println("\nExample: gios init")
+	if len(os.Args) < 2 || os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "?" {
+		printHelp()
 		return
 	}
 
@@ -101,6 +98,12 @@ func main() {
 		disconnect()
 	case "update":
 		updateGios()
+	case "headers":
+		runHeaders()
+	case "hook":
+		runHook()
+	case "polyfill":
+		runPolyfill()
 	case "sdk":
 		handleSDK()
 	case "logs":
@@ -109,6 +112,10 @@ func main() {
 		runWatch()
 	case "analyze":
 		analyzeProject()
+	case "daemon":
+		runDaemon()
+	case "shell":
+		runShell()
 	case "doctor":
 		runDoctor()
 	case "diff":
@@ -119,18 +126,111 @@ func main() {
 		runDiff(os.Args[2])
 	case "init":
 		initProject()
+	case "info":
+		runInfo()
+	case "screenshot":
+		runScreenshot()
+	case "reboot":
+		runReboot()
+	case "mount":
+		runMount()
 	default:
-		fmt.Printf("Error: Unknown command '%s'.\n", cmd)
-		fmt.Println("Run 'gios' with no arguments to see the list of available commands.")
+		fmt.Printf("%s[!] Error:%s Unknown command '%s'.\n", ColorRed, ColorReset, cmd)
+		fmt.Println("Run 'gios help' to see the list of available commands.")
 	}
 }
 
+func printHelp() {
+	fmt.Println(ColorCyan + ColorBold + `
+ dP""b8 88  dP"Yb  .dP"Y8 
+dP   ` + "`" + `" 88 dP   Yb ` + "`" + `Ybo." 
+Yb  "88 88 Yb   dP o.` + "`" + `Y8b 
+ YboodP 88  YbodP  8bodP' 
+` + ColorReset)
+	
+	fmt.Printf("%s[GIOS CLI]%s %sThe modern build system for legacy & modern iOS%s\n", ColorCyan, ColorReset, ColorBold, ColorReset)
+	fmt.Printf("Version: %s | Built: %s\n", AppVersion, BuildTime)
+	fmt.Println("----------------------------------------------------------------")
+	
+	fmt.Println("\n" + ColorBold + "USAGE:" + ColorReset)
+	fmt.Println("  gios <command> [arguments] [flags...]")
+
+	fmt.Println("\n" + ColorBold + "CORE COMMANDS:" + ColorReset)
+	fmt.Printf("  %-12s %s\n", "init", "Initializes a new project (Interactive Setup)")
+	fmt.Printf("  %-12s %s\n", "build", "Builds and signs the binary for the configured target")
+	fmt.Printf("  %-12s %s\n", "run", "Builds, signs and executes the app on the iDevice")
+	fmt.Printf("  %-12s %s\n", "package", "Creates a .deb package for Cydia/Sileo distribution")
+	fmt.Printf("  %-12s %s\n", "install", "Builds, packages and installs the .deb on the device")
+	fmt.Printf("  %-12s %s\n", "watch", "Shortcut for 'run --watch' (Auto-build & deploy)")
+
+	fmt.Println("\n" + ColorBold + "CONNECTIVITY:" + ColorReset)
+	fmt.Printf("  %-12s %s\n", "connect", "Opens a persistent SSH tunnel to the device")
+	fmt.Printf("  %-12s %s\n", "daemon", "Starts the background Go SSH service (Native mode)")
+	fmt.Printf("  %-12s %s\n", "shell", "Opens an interactive SSH terminal on the device")
+	fmt.Printf("  %-12s %s\n", "logs", "Streams live syslog for real-time debugging")
+	fmt.Printf("  %-12s %s\n", "disconnect", "Closes all active background connections")
+
+	fmt.Println("\n" + ColorBold + "UTILITIES:" + ColorReset)
+	fmt.Printf("  %-12s %s\n", "doctor", "Diagnoses your environment for build readiness")
+	fmt.Printf("  %-12s %s\n", "analyze", "Analyzes code for legacy iOS compatibility risks")
+	fmt.Printf("  %-12s %s\n", "sdk", "Manage iOS SDKs (list, add, remove)")
+	fmt.Printf("  %-12s %s\n", "diff", "Shows transpilation changes for a specific file")
+	fmt.Printf("  %-12s %s\n", "update", "Updates Gios CLI to the latest GitHub release")
+
+	fmt.Println("\n" + ColorBold + "USB TOOLS (No SSH required):" + ColorReset)
+	fmt.Printf("  %-12s %s\n", "info", "Display detailed hardware/battery info via USB")
+	fmt.Printf("  %-12s %s\n", "screenshot", "Capture a screenshot of the iDevice (saved to Mac)")
+	fmt.Printf("  %-12s %s\n", "reboot", "Force a reboot of the connected device")
+	fmt.Printf("  %-12s %s\n", "mount", "Mount Developer Disk Image (needed for screenshot/debug)")
+
+	fmt.Println("\n" + ColorBold + "ADVANCED (Elite Pro Tools):" + ColorReset)
+	fmt.Printf("  %-12s %s\n", "headers", "Auto-extract ObjC headers from any process")
+	fmt.Printf("  %-12s %s\n", "hook", "Generate DSL-based hooks for Go tweaks")
+	fmt.Printf("  %-12s %s\n", "polyfill", "Intelligent compatibility patching for legacy iOS")
+
+	fmt.Println("\n" + ColorBold + "GLOBAL FLAGS:" + ColorReset)
+	fmt.Printf("  %-15s %s\n", "--watch, -w", "Enable Auto-build & run on file change (Pro Mode)")
+	fmt.Printf("  %-15s %s\n", "--unsafe", "Force-transpile vendor/ dependencies for legacy targets")
+	fmt.Printf("  %-15s %s\n", "--out <path>", "Overwrite output binary filename")
+	fmt.Printf("  %-15s %s\n", "--ip <ip>", "Temporarily override target device IP")
+	fmt.Printf("  %-15s %s\n", "--syslog", "Use native USB streaming for logs (needs idevicesyslog)")
+	fmt.Printf("  %-15s %s\n", "--v, --version", "Show current Gios version")
+	
+	fmt.Println("\n" + ColorBold + "EXAMPLES:")
+	fmt.Println("  gios init")
+	fmt.Println("  gios run --watch")
+	fmt.Println("  gios headers SpringBoard")
+	fmt.Println("  gios hook SpringBoard init")
+	fmt.Println("")
+}
+
 func loadConfig() Config {
-	data, err := ioutil.ReadFile("gios.json")
+	conf, err := loadConfigSafe()
 	if err != nil {
 		fmt.Println("Error: gios.json not found. Run 'gios init' first.")
 		os.Exit(1)
 	}
+	return conf
+}
+
+func loadConfigSafe() (Config, error) {
+	// Search for gios.json in current and parent directories
+	curr, _ := os.Getwd()
+	var data []byte
+	var err error
+	
+	for {
+		data, err = os.ReadFile(filepath.Join(curr, "gios.json"))
+		if err == nil {
+			break
+		}
+		parent := filepath.Dir(curr)
+		if parent == curr {
+			return Config{}, fmt.Errorf("gios.json not found in any parent directory")
+		}
+		curr = parent
+	}
+
 	var conf Config
 	json.Unmarshal(data, &conf)
 
@@ -159,7 +259,7 @@ func loadConfig() Config {
 		}
 	}
 
-	return conf
+	return conf, nil
 }
 
 func getFlagValue(flagName string) string {
@@ -169,6 +269,124 @@ func getFlagValue(flagName string) string {
 		}
 	}
 	return ""
+}
+
+func (c Config) GetSSHArgs(extra ...string) []string {
+	sshKeyPath := filepath.Join(giosDir, "id_rsa")
+	target := "root@" + c.Deploy.IP
+	
+	home, _ := os.UserHomeDir()
+	controlPath := filepath.Join(home, ".ssh", "gios-%r@%h:%p")
+
+	args := []string{
+		"-i", sshKeyPath,
+		"-o", "HostKeyAlgorithms=+ssh-rsa",
+		"-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
+		"-o", "KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1",
+		"-o", "Ciphers=+aes128-cbc,3des-cbc",
+		"-o", "ControlPath=" + controlPath,
+	}
+	if c.Deploy.USB {
+		target = "root@127.0.0.1"
+		args = append(args, "-p", "2222")
+	}
+	args = append(args, target)
+	return append(args, extra...)
+}
+
+func (c Config) GetSCPArgs() []string {
+	sshKeyPath := filepath.Join(giosDir, "id_rsa")
+	home, _ := os.UserHomeDir()
+	controlPath := filepath.Join(home, ".ssh", "gios-%r@%h:%p")
+
+	args := []string{
+		"-i", sshKeyPath,
+		"-o", "HostKeyAlgorithms=+ssh-rsa",
+		"-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
+		"-o", "KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1",
+		"-o", "Ciphers=+aes128-cbc,3des-cbc",
+		"-o", "ControlMaster=auto",
+		"-o", "ControlPath=" + controlPath,
+	}
+	if c.Deploy.USB {
+		args = append(args, "-P", "2222")
+	}
+	return args
+}
+
+func (c Config) GetSCPTarget(filePath string) string {
+	target := "root@" + c.Deploy.IP
+	if c.Deploy.USB {
+		target = "root@127.0.0.1"
+	}
+	return target + ":" + filePath
+}
+
+func ensureUSBTunnel(conf Config) bool {
+	if !conf.Deploy.USB {
+		return true
+	}
+
+	// Check for idevice_id
+	if _, err := exec.LookPath("idevice_id"); err != nil {
+		fmt.Printf("%s[!] Error: 'idevice_id' not found. Please install libimobiledevice%s\n", ColorRed, ColorReset)
+		return false
+	}
+
+	// Check for iproxy
+	if _, err := exec.LookPath("iproxy"); err != nil {
+		fmt.Printf("%s[!] Error: 'iproxy' not found. Please install libimobiledevice.%s\n", ColorRed, ColorReset)
+		return false
+	}
+
+	// Check if any device is connected
+	out, _ := exec.Command("idevice_id", "-l").Output()
+	if len(strings.TrimSpace(string(out))) == 0 {
+		fmt.Printf("%s[!] Warning: No iOS device detected via USB. Ensure it's plugged in.%s\n", ColorYellow, ColorReset)
+		return false
+	}
+
+	// Check if iproxy is already listening on 2222
+	checkCmd := exec.Command("nc", "-z", "127.0.0.1", "2222")
+	if err := checkCmd.Run(); err != nil {
+		fmt.Printf("%s[gios] (USB Mode) Initializing usbmuxd tunnel (2222 -> 22)...%s\n", ColorCyan, ColorReset)
+		go func() {
+			exec.Command("iproxy", "2222", "22").Run()
+		}()
+		time.Sleep(1500 * time.Millisecond)
+	}
+	return true
+}
+
+func (c Config) remoteExec(cmd string) (string, error) {
+	resp, err := callDaemon(DaemonRequest{Command: "exec", Payload: cmd})
+	if err == nil {
+		if resp.Error != "" {
+			return resp.Output, fmt.Errorf(resp.Error)
+		}
+		return resp.Output, nil
+	}
+
+	// Fallback to legacy SSH command
+	sshArgs := c.GetSSHArgs(cmd)
+	out, err := exec.Command("ssh", sshArgs...).CombinedOutput()
+	return string(out), err
+}
+
+func (c Config) remoteUpload(local, remote string) error {
+	resp, err := callDaemon(DaemonRequest{Command: "upload", Payload: local, Remote: remote})
+	if err == nil {
+		if resp.Error != "" {
+			return fmt.Errorf(resp.Error)
+		}
+		return nil
+	}
+
+	// Fallback to legacy SCP command
+	target := c.GetSCPTarget(remote)
+	scpArgs := c.GetSCPArgs()
+	scpArgs = append(scpArgs, local, target)
+	return exec.Command("scp", scpArgs...).Run()
 }
 
 func ensureWrapper(sdkPath string) string {
@@ -461,7 +679,7 @@ func build() {
 func run() {
 	conf := loadConfig()
 	isDylib := strings.HasSuffix(conf.Output, ".dylib")
-	if conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX" {
+	if !conf.Deploy.USB && (conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX") {
 		fmt.Println("[gios] Error: Deployment IP is not configured.")
 		return
 	}
@@ -474,20 +692,18 @@ func run() {
 		}
 	}
 
-	fmt.Printf("[gios] Sending to %s...\n", conf.Deploy.IP)
-	dest := fmt.Sprintf("root@%s:%s", conf.Deploy.IP, conf.Deploy.Path)
-
-	sshKey := filepath.Join(giosDir, "id_rsa")
-
-	cmd := exec.Command("scp",
-		"-i", sshKey,
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-		conf.Output, dest)
+	targetDisp := conf.Deploy.IP
+	if conf.Deploy.USB {
+		targetDisp = "USB Device"
+		if !ensureUSBTunnel(conf) {
+			return
+		}
+	}
+	fmt.Printf("[gios] Sending to %s...\n", targetDisp)
 
 	drawProgress("Uploading", 50)
-	if err := cmd.Run(); err != nil {
-		fmt.Println("\n[gios] Error uploading file via SCP.")
+	if err := conf.remoteUpload(conf.Output, conf.Deploy.Path); err != nil {
+		fmt.Printf("\n[gios] Error uploading file: %v\n", err)
 		return
 	}
 
@@ -515,20 +731,14 @@ func run() {
 		}
 		
 		destPlist := filepath.Join(conf.Deploy.Path, plistName)
-		scpPlist := exec.Command("scp", "-i", sshKey, "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", localPlist, "root@"+conf.Deploy.IP+":"+destPlist)
-		scpPlist.Run()
+		conf.remoteUpload(localPlist, destPlist)
 		os.Remove("tmp_filter.plist")
 	}
 	drawProgress("Uploading", 100)
 
 	if isDylib {
 		fmt.Printf("[gios] Tweak detected. Triggering Respring to apply...\n")
-		respringCmd := exec.Command("ssh",
-			"-i", sshKey,
-			"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-			"root@"+conf.Deploy.IP,
-			"killall -9 SpringBoard")
-		respringCmd.Run()
+		conf.remoteExec("killall -9 SpringBoard")
 		fmt.Println("[gios] Respring triggered! Wait 2 seconds for injection.")
 		time.Sleep(2 * time.Second)
 		return
@@ -547,13 +757,29 @@ func run() {
 		fmt.Printf("[gios] Executing %s on device...\n", runPath)
 		fmt.Println("--------------------------------------------------")
 
-		sshCmd := exec.Command("ssh",
-			"-i", sshKey,
-			"-o", "ControlMaster=auto",
-			"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-			"-t", "root@"+conf.Deploy.IP,
-			fmt.Sprintf("chmod +x %s && env GOGC=20 GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1 %s", runPath, runPath))
+		sshFullHost := "root@" + conf.Deploy.IP
+		sshPort := "22"
+		if conf.Deploy.USB {
+			sshFullHost = "root@127.0.0.1"
+			sshPort = "2222"
+		}
 
+		home, _ := os.UserHomeDir()
+		controlPath := filepath.Join(home, ".ssh", "gios-%r@%h:%p")
+
+		sshArgs := []string{
+			"-i", filepath.Join(giosDir, "id_rsa"),
+			"-o", "HostKeyAlgorithms=+ssh-rsa",
+			"-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
+			"-o", "KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1",
+			"-o", "Ciphers=+aes128-cbc,3des-cbc",
+			"-o", "ControlMaster=auto",
+			"-o", "ControlPath=" + controlPath,
+			"-t", "-p", sshPort, sshFullHost,
+			fmt.Sprintf("chmod +x %s && env GOGC=20 GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1 %s", runPath, runPath),
+		}
+
+		sshCmd := exec.Command("ssh", sshArgs...)
 		sshCmd.Stdin = os.Stdin
 		sshCmd.Stdout = os.Stdout
 		sshCmd.Stderr = os.Stderr
@@ -706,7 +932,7 @@ exit 0
 	out, err := exec.Command("dpkg-deb", "-Zgzip", "-b", stage, debName).CombinedOutput()
 	if err != nil {
 		fmt.Printf("\n[!] Error in dpkg-deb:\n%s\n", string(out))
-		fmt.Println("    Note: You need to install dpkg on your Mac (brew install dpkg)")
+		fmt.Println("    Note: You need to install dpkg (e.g., via your package manager)")
 	} else {
 		drawProgress("Done!", 100)
 		fmt.Printf("[+] Generated: %s\n", debName)
@@ -733,50 +959,39 @@ func installDeb() {
 
 	debName := fmt.Sprintf("%s_%s_%s.deb", pkgID, version, debArch)
 
-	if conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX" {
+	if !conf.Deploy.USB && (conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX") {
 		fmt.Println("[gios] Error: Deployment IP not configured to install the .deb")
 		return
 	}
 
-	fmt.Printf("[gios] Installing on %s...\n", conf.Deploy.IP)
-	dest := fmt.Sprintf("root@%s:/tmp/%s", conf.Deploy.IP, debName)
+	targetDisp := conf.Deploy.IP
+	if conf.Deploy.USB {
+		targetDisp = "USB Device"
+		if !ensureUSBTunnel(conf) {
+			return
+		}
+	}
+	fmt.Printf("[gios] Installing on %s...\n", targetDisp)
 
-	sshKey := filepath.Join(giosDir, "id_rsa")
-
-	err := exec.Command("scp",
-		"-i", sshKey,
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-		debName, dest).Run()
-	if err != nil {
-		fmt.Println("[!] Error uploading the .deb to the device (SCP)")
+	if err := conf.remoteUpload(debName, "/tmp/"+debName); err != nil {
+		fmt.Printf("[!] Error uploading the .deb: %v\n", err)
 		return
 	}
 
 	fmt.Println("[gios] Running DPKG on the iDevice...")
-
 	dpkgCmd := "dpkg"
-	if conf.Arch == "arm64" {
-		dpkgCmd = "dpkg"
-	}
-
 	sshInstall := fmt.Sprintf("%s -i /tmp/%s && rm -f /tmp/%s", dpkgCmd, debName, debName)
-	out, err := exec.Command("ssh",
-		"-i", sshKey,
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-		"root@"+conf.Deploy.IP, sshInstall).CombinedOutput()
+
+	out, err := conf.remoteExec(sshInstall)
 	if err != nil {
-		fmt.Printf("[!] Installation failed (DPKG):\n%s\n", string(out))
+		fmt.Printf("[!] Installation failed (DPKG):\n%s\n", out)
 		return
 	}
+	fmt.Printf("[+] Installation successfully completed on the iPad!\n%s\n", out)
 
-	fmt.Printf("[+] Installation successfully completed on the iPad!\n%s\n", string(out))
-
-	// Tweak check
 	if strings.HasSuffix(conf.Output, ".dylib") {
 		fmt.Println("[gios] Tweak detected. Triggering Respring to apply changes...")
-		exec.Command("ssh", "-i", filepath.Join(giosDir, "id_rsa"), "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", "root@"+conf.Deploy.IP, "killall -9 SpringBoard").Run()
+		conf.remoteExec("killall -9 SpringBoard")
 	}
 }
 
@@ -802,19 +1017,31 @@ func drawProgress(step string, percent int) {
 }
 
 func connect() {
-	var ip string
+	conf := loadConfig()
 	if len(os.Args) >= 3 {
-		ip = os.Args[2]
-	} else {
-		conf := loadConfig()
-		if conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX" {
-			fmt.Println("Error: IP not provided and not found in gios.json")
-			return
+		arg := strings.ToLower(os.Args[2])
+		if arg == "usb" {
+			conf.Deploy.USB = true
+			conf.Deploy.IP = "127.0.0.1"
+		} else {
+			conf.Deploy.IP = os.Args[2]
 		}
-		ip = conf.Deploy.IP
 	}
 
-	fmt.Printf("[gios] Setting up background SSH connection to %s...\n", ip)
+	targetDisp := conf.Deploy.IP
+	if conf.Deploy.USB {
+		targetDisp = "USB Device"
+		if !ensureUSBTunnel(conf) {
+			return
+		}
+	}
+
+	if !conf.Deploy.USB && (conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX") {
+		fmt.Println("Error: IP not provided and not found in gios.json")
+		return
+	}
+
+	fmt.Printf("[gios] Setting up background SSH connection to %s...\n", targetDisp)
 
 	sshKeyPath := filepath.Join(giosDir, "id_rsa")
 	if _, err := os.Stat(sshKeyPath); os.IsNotExist(err) {
@@ -822,48 +1049,69 @@ func connect() {
 		exec.Command("ssh-keygen", "-t", "rsa", "-b", "2048", "-f", sshKeyPath, "-N", "").Run()
 	}
 
-	fmt.Println("[gios] Checking existing SSH authorization...")
-	testCmd := exec.Command("ssh", "-i", sshKeyPath, "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "root@"+ip, "echo auth_ok")
-	if err := testCmd.Run(); err != nil {
-		fmt.Println("[gios] Passwordless login not configured or failed.")
-		fmt.Println("[gios] Sending SSH key to device (it may ask for your root password one last time)...")
-		cmdCopy := exec.Command("ssh-copy-id", "-i", sshKeyPath, "root@"+ip)
-		cmdCopy.Stdin = os.Stdin
-		cmdCopy.Stdout = os.Stdout
-		cmdCopy.Stderr = os.Stderr
-		cmdCopy.Run()
-	} else {
-		fmt.Println("[gios] Identity confirmed. Key already installed.")
-	}
+	fmt.Println("[gios] Checking existing SSH authorization (Native Go Client)...")
+	client, err := NewSSHClient(conf)
+	if err != nil {
+		fmt.Println("[gios] Key-based login failed or not configured. Trying password auth...")
+		fmt.Printf("[gios] Please enter the root password for %s (default: alpine): ", targetDisp)
+		bytePassword := prompt("Password", "alpine")
+		
+		client, err = NewSSHClientWithPassword(conf, bytePassword)
+		if err != nil {
+			fmt.Printf("[!] Could not connect with password either: %v\n", err)
+			return
+		}
 
-	infoCmd := exec.Command("ssh", "-i", sshKeyPath, "-o", "BatchMode=yes", "root@"+ip, `uname -n; uname -m; sw_vers -productVersion 2>/dev/null || echo 'Unknown'`)
-	infoOut, _ := infoCmd.Output()
-	lines := strings.Split(strings.TrimSpace(string(infoOut)), "\n")
-	if len(lines) >= 3 {
-		name := strings.TrimSpace(lines[0])
-		arch := strings.TrimSpace(lines[1])
-		ver := strings.TrimSpace(lines[2])
-		fmt.Printf("[gios] Device Info: %s | %s | iOS %s\n", name, arch, ver)
-		saveDeviceData(ip, name, arch, ver)
+		fmt.Println("[gios] Installing SSH key for future passwordless logins...")
+		if err := client.InstallKey(sshKeyPath + ".pub"); err != nil {
+			fmt.Printf("[!] Failed to install public key: %v\n", err)
+			// Non-fatal, we can continue for this session
+		} else {
+			fmt.Println("[+] SSH key installed successfully.")
+		}
+	} else {
+		fmt.Println("[gios] Identity confirmed via Native Go Client.")
+	}
+	defer client.Close()
+
+	infoOut, err := client.Run(`uname -n; uname -m; sw_vers -productVersion 2>/dev/null || echo 'Unknown'`)
+	if err == nil {
+		lines := strings.Split(strings.TrimSpace(infoOut), "\n")
+		if len(lines) >= 3 {
+			name := strings.TrimSpace(lines[0])
+			arch := strings.TrimSpace(lines[1])
+			ver := strings.TrimSpace(lines[2])
+			fmt.Printf("[gios] Device Info: %s | %s | iOS %s\n", name, arch, ver)
+			saveDeviceData(conf.Deploy.IP, name, arch, ver)
+		}
 	}
 
 	os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".ssh"), 0700)
 
-	// Close any previous dangling socket to avoid "socket already exists" error
-	exec.Command("ssh", "-O", "exit", "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", "root@"+ip).Run()
+	// Still start the OpenSSH Master for backward compatibility in scripts
+	sshExitArgs := conf.GetSSHArgs()
+	sshExitArgs = append([]string{"-O", "exit"}, sshExitArgs...)
+	exec.Command("ssh", sshExitArgs...).Run()
 
-	fmt.Println("[gios] Opening persistent background tunnel...")
-	cmd := exec.Command("ssh",
-		"-f", "-N", "-M",
-		"-o", "ControlPath=~/.ssh/gios-%r@%h:%p",
-		"-o", "ServerAliveInterval=60",
-		"-i", sshKeyPath,
-		"root@"+ip)
-
-	if err := cmd.Run(); err != nil {
-		fmt.Println("[!] Failed to establish background connection.")
+	fmt.Println("[gios] Opening persistent background tunnel (OpenSSH Compatibility)...")
+	sshMasterArgs := []string{"-f", "-N", "-M", "-o", "ServerAliveInterval=60"}
+	sshMasterArgs = append(sshMasterArgs, conf.GetSSHArgs()...)
+	
+	cmdMaster := exec.Command("ssh", sshMasterArgs...)
+	masterErrOut, err := cmdMaster.CombinedOutput()
+	if err != nil {
+		fmt.Printf("[!] Warning: Could not establish OpenSSH background connection: %v\n", err)
+		if len(masterErrOut) > 0 {
+			fmt.Printf("    SSH Error: %s\n", strings.TrimSpace(string(masterErrOut)))
+		}
 	} else {
-		fmt.Println("[+] Magic connection open in background! 'gios install' and 'gios run --watch' will fly.")
+		fmt.Println("[+] OpenSSH Magic connection open!")
+	}
+
+	if conf.Deploy.USB {
+		fmt.Println("\n[gios] TIP: You can now run 'gios daemon usb' in another terminal for an even faster native Go experience.")
+	} else {
+		fmt.Println("\n[gios] TIP: You can now run 'gios daemon' in another terminal for an even faster native Go experience.")
 	}
 }
 
@@ -874,28 +1122,58 @@ func ensureSDK(version, targetPath string) error {
 }
 
 func disconnect() {
-	var ip string
+	conf := loadConfig()
 	if len(os.Args) >= 3 {
-		ip = os.Args[2]
-	} else {
-		conf := loadConfig()
-		if conf.Deploy.IP == "" || conf.Deploy.IP == "192.168.1.XX" {
-			fmt.Println("Error: IP not provided and not found in gios.json")
-			return
+		if os.Args[2] == "usb" {
+			conf.Deploy.USB = true
+		} else {
+			conf.Deploy.IP = os.Args[2]
 		}
-		ip = conf.Deploy.IP
 	}
 
-	fmt.Printf("[gios] Closing connection to %s...\n", ip)
+	targetDisp := conf.Deploy.IP
+	if conf.Deploy.USB {
+		targetDisp = "USB Device"
+	}
 
-	cmd := exec.Command("ssh", "-O", "exit", "-o", "ControlPath=~/.ssh/gios-%r@%h:%p", "root@"+ip)
-	err := cmd.Run()
+	fmt.Printf("[gios] Closing connection to %s...\n", targetDisp)
+
+	sshExitArgs := conf.GetSSHArgs()
+	sshExitArgs = append([]string{"-O", "exit"}, sshExitArgs...)
+	err := exec.Command("ssh", sshExitArgs...).Run()
 	if err != nil {
 		fmt.Println("[gios] Connection was already closed or not found.")
-		home, _ := os.UserHomeDir()
-		os.Remove(filepath.Join(home, ".ssh", fmt.Sprintf("gios-root@%s:22", ip)))
 	} else {
 		fmt.Println("[gios] Connection closed successfully.")
+	}
+}
+
+func runShell() {
+	conf := loadConfig()
+	if len(os.Args) >= 3 && strings.ToLower(os.Args[2]) == "usb" {
+		conf.Deploy.USB = true
+		conf.Deploy.IP = "127.0.0.1"
+	}
+
+	targetDisp := conf.Deploy.IP
+	if conf.Deploy.USB {
+		targetDisp = "USB Device"
+		ensureUSBTunnel(conf)
+	}
+
+	fmt.Printf("[gios] Opening interactive shell on %s...\n", targetDisp)
+
+	sshArgs := conf.GetSSHArgs()
+	// Add -t for TTY
+	sshArgs = append([]string{"-t"}, sshArgs...)
+
+	cmd := exec.Command("ssh", sshArgs...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	if err != nil {
+		fmt.Printf("[!] Shell session ended: %v\n", err)
 	}
 }
 
@@ -1067,8 +1345,56 @@ func getDownloadedSDKs() []string {
 	return downloaded
 }
 
+func fetchAssetManifest() (*AssetManifest, error) {
+	resp, err := http.Get(RemoteAssetsURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var manifest AssetManifest
+	body, _ := ioutil.ReadAll(resp.Body)
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		return nil, err
+	}
+	return &manifest, nil
+}
+
 func listSDKs() {
-	fmt.Println("[gios] Fetching available SDKs from Theos...")
+	fmt.Println("[gios] Fetching available SDKs from Gios Platform Assets...")
+	manifest, err := fetchAssetManifest()
+	if err != nil {
+		fmt.Printf("[!] Could not fetch manifest: %v. Using legacy fallback...\n", err)
+		listSDKsLegacy()
+		return
+	}
+
+	downloaded := getDownloadedSDKs()
+	downloadedMap := make(map[string]bool)
+	for _, d := range downloaded {
+		downloadedMap[d] = true
+	}
+
+	fmt.Println("\nAvailable iOS SDKs:")
+	fmt.Println("--------------------------------------------------")
+	if len(manifest.SDKs) == 0 {
+		fmt.Println(" [!] No SDKs found in the manifest.")
+		fmt.Println(" [TIP] Make sure assets.json is populated in the platform-assets repo.")
+	}
+	for _, sdk := range manifest.SDKs {
+		status := " "
+		if downloadedMap[sdk.Name] {
+			status = "*"
+		}
+		fmt.Printf(" [%s] %s (%s)\n", status, sdk.Name, sdk.Platform)
+	}
+	fmt.Println("--------------------------------------------------")
+	fmt.Println("(*) = Already downloaded")
+}
+
+func listSDKsLegacy() {
 	req, _ := http.NewRequest("GET", "https://api.github.com/repos/theos/sdks/releases/latest", nil)
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -1093,8 +1419,7 @@ func listSDKs() {
 		downloadedMap[d] = true
 	}
 
-	fmt.Println("\nAvailable iOS SDKs:")
-	fmt.Println("--------------------------------------------------")
+	fmt.Println("\nAvailable iOS SDKs (Legacy):")
 	for _, asset := range release.Assets {
 		if strings.HasSuffix(asset.Name, ".sdk.tar.xz") || strings.HasSuffix(asset.Name, ".sdk.tar.gz") {
 			sdkName := strings.TrimSuffix(strings.TrimSuffix(asset.Name, ".tar.xz"), ".tar.gz")
@@ -1105,64 +1430,86 @@ func listSDKs() {
 			fmt.Printf(" [%s] %s\n", status, sdkName)
 		}
 	}
-	fmt.Println("--------------------------------------------------")
-	fmt.Println("(*) = Already downloaded")
 }
 
 func addSDK() {
 	fmt.Println("[gios] Fetching available SDKs...")
-	req, _ := http.NewRequest("GET", "https://api.github.com/repos/theos/sdks/releases/latest", nil)
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		fmt.Println("[!] Failed to fetch SDKs list.")
-		return
+	manifest, err := fetchAssetManifest()
+	var sdkList []struct {
+		Name     string
+		URL      string
+		Platform string
+		Hash     string
 	}
-	defer resp.Body.Close()
 
-	var release struct {
-		Assets []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	body, _ := ioutil.ReadAll(resp.Body)
-	json.Unmarshal(body, &release)
-
-	var validAssets []struct{ Name, URL string }
-	for _, asset := range release.Assets {
-		if strings.HasSuffix(asset.Name, ".sdk.tar.xz") || strings.HasSuffix(asset.Name, ".sdk.tar.gz") {
-			validAssets = append(validAssets, struct{ Name, URL string }{asset.Name, asset.BrowserDownloadURL})
+	if err != nil {
+		fmt.Printf("[!] Could not fetch manifest: %v. Using legacy fallback...\n", err)
+		// Minimal fallback for addSDK
+		req, _ := http.NewRequest("GET", "https://api.github.com/repos/theos/sdks/releases/latest", nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			var release struct{ Assets []struct{ Name, BrowserDownloadURL string } `json:"assets"` }
+			json.NewDecoder(resp.Body).Decode(&release)
+			for _, asset := range release.Assets {
+				if strings.HasSuffix(asset.Name, ".sdk.tar.xz") || strings.HasSuffix(asset.Name, ".sdk.tar.gz") {
+					sdkList = append(sdkList, struct {
+						Name     string
+						URL      string
+						Platform string
+						Hash     string
+					}{
+						Name:     strings.TrimSuffix(strings.TrimSuffix(asset.Name, ".tar.xz"), ".tar.gz"),
+						URL:      asset.BrowserDownloadURL,
+						Platform: "iPhoneOS",
+						Hash:     "",
+					})
+				}
+			}
+			resp.Body.Close()
+		}
+	} else {
+		for _, sdk := range manifest.SDKs {
+			sdkList = append(sdkList, struct {
+				Name     string
+				URL      string
+				Platform string
+				Hash     string
+			}{sdk.Name, sdk.URL, sdk.Platform, sdk.Hash})
 		}
 	}
 
+	if len(sdkList) == 0 {
+		fmt.Println("[!] No SDKs available to download.")
+		return
+	}
+
 	fmt.Println("\nSelect an SDK to download:")
-	for i, asset := range validAssets {
-		sdkName := strings.TrimSuffix(strings.TrimSuffix(asset.Name, ".tar.xz"), ".tar.gz")
-		fmt.Printf("  [%d] %s\n", i+1, sdkName)
+	for i, sdk := range sdkList {
+		fmt.Printf("  [%d] %s (%s)\n", i+1, sdk.Name, sdk.Platform)
 	}
 
 	choiceStr := prompt("\nEnter number", "")
 	var choice int
 	fmt.Sscanf(choiceStr, "%d", &choice)
 
-	if choice < 1 || choice > len(validAssets) {
+	if choice < 1 || choice > len(sdkList) {
 		fmt.Println("[!] Invalid selection.")
 		return
 	}
 
-	selected := validAssets[choice-1]
-	sdkName := strings.TrimSuffix(strings.TrimSuffix(selected.Name, ".tar.xz"), ".tar.gz")
-	targetPath := filepath.Join(giosDir, "sdks", sdkName)
+	selected := sdkList[choice-1]
+	targetPath := filepath.Join(giosDir, "sdks", selected.Name)
 
 	if _, err := os.Stat(targetPath); err == nil {
-		fmt.Printf("[gios] SDK %s is already installed.\n", sdkName)
+		fmt.Printf("[gios] SDK %s is already installed.\n", selected.Name)
 		return
 	}
 
-	version := strings.TrimPrefix(sdkName, "iPhoneOS")
-	version = strings.TrimSuffix(version, ".sdk")
-	ensureSDKFromURL(version, targetPath, selected.URL)
+	// For downloading:
+	fmt.Printf("[gios] Downloading %s from %s...\n", selected.Name, selected.URL)
+	ensureSDKFromURL(selected.Name, targetPath, selected.URL)
+
+	// If hash is present, we should verify it (todo in ensureSDKFromURL)
 }
 
 func removeSDK() {
@@ -1192,6 +1539,22 @@ func removeSDK() {
 	fmt.Println("[+] Removed successfully.")
 }
 
+func downloadURLToFile(url, targetPath string, showProgress bool) error {
+	// Escape spaces in URL
+	escapedURL := strings.ReplaceAll(url, " ", "%20")
+	args := []string{"-L", "-o", targetPath}
+	if showProgress {
+		args = append(args, "-#")
+	} else {
+		args = append(args, "-s")
+	}
+	args = append(args, escapedURL)
+	cmd := exec.Command("curl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 func ensureSDKFromURL(version, targetPath, customUrl string) error {
 	sdkDir := filepath.Dir(targetPath)
 	os.MkdirAll(sdkDir, 0755)
@@ -1201,11 +1564,8 @@ func ensureSDKFromURL(version, targetPath, customUrl string) error {
 	fileName := filepath.Base(customUrl)
 	tarPath := filepath.Join(sdkDir, fileName)
 
-	cmd := exec.Command("curl", "-L", "-#", "-o", tarPath, customUrl)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("curl failed: %v", err)
+	if err := downloadURLToFile(customUrl, tarPath, true); err != nil {
+		return fmt.Errorf("download failed: %v", err)
 	}
 
 	fmt.Println("[gios] Extracting SDK (this might take a few seconds)...")
@@ -1257,7 +1617,18 @@ func initProject() {
 		conf.Entitlements = "none"
 	}
 
-	conf.Deploy.IP = prompt("\n6. Target Device IP Address", "192.168.1.XX")
+	fmt.Println("\n6. Deployment Method:")
+	fmt.Println("   [1] Wi-Fi (IP Address)")
+	fmt.Println("   [2] USB (libimobiledevice/iproxy)")
+	deployOption := prompt("   Option", "1")
+
+	if deployOption == "2" {
+		conf.Deploy.USB = true
+		conf.Deploy.IP = "127.0.0.1"
+	} else {
+		conf.Deploy.IP = prompt("   Target Device IP Address", "192.168.1.XX")
+	}
+
 	conf.Output = "out_" + conf.Name
 	conf.Main = "main.go"
 
