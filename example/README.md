@@ -11,7 +11,8 @@ example/
 ├── 📂 web_debug_server/   Premium Web Dashboard & Remote Controls. (LaunchDaemon)
 ├── 📂 sys_notify_proxy/   Real-time Darwin Notification listener. (LaunchDaemon)
 ├── 📂 tweak_hello/        SpringBoard Tweak: Native Alert Popup. (MobileSubstrate)
-└── 📂 tweak_status_bar/   SpringBoard Tweak: Pulse Heartbeat Logger. (MobileSubstrate)
+├── 📂 tweak_status_bar/   SpringBoard Tweak: Pulse Heartbeat Logger. (MobileSubstrate)
+└── 📂 headers/            Advanced: Auto-generate Go APIs from iDevice binaries.
 ```
 
 ## Quick Reference Table
@@ -24,6 +25,7 @@ example/
 | **Sys Notify** | Daemon | Intercept System Events (Darwin) | [Explore](sys_notify_proxy/README.md) |
 | **Tweak Hello** | Tweak | Alert injection into SpringBoard | [Explore](tweak_hello/README.md) |
 | **Status Bar** | Tweak | Persistent logging within SB | [Explore](tweak_status_bar/README.md) |
+| **Headers RE** | Advanced | Auto-discovery of Classes & Methods | [Explore](headers/README.md) |
 
 ## Implementation Overview
 
