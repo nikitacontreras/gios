@@ -103,7 +103,10 @@ release-manifest:
 	@echo "version: $(VERSION)" > $(BUILD_DIR)/release.yml
 	@echo "binaries:" >> $(BUILD_DIR)/release.yml
 	@for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64 windows-arm64; do \
-		file=$$( [[ $$target == windows* ]] && echo "$(BINARY_NAME)-$$target.exe" || echo "$(BINARY_NAME)-$$target" ); \
+		case $$target in \
+			windows*) file="$(BINARY_NAME)-$$target.exe" ;; \
+			*) file="$(BINARY_NAME)-$$target" ;; \
+		esac; \
 		hash=$$(sha256sum $(BUILD_DIR)/$$file | awk '{print $$1}'); \
 		echo "  - target: $$target" >> $(BUILD_DIR)/release.yml; \
 		echo "    executable: $$file" >> $(BUILD_DIR)/release.yml; \

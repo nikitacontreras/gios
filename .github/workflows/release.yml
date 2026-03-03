@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -29,13 +31,13 @@ jobs:
           if [[ $GITHUB_REF == refs/tags/* ]]; then
             echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           else
-            echo "VERSION=latest" >> $GITHUB_OUTPUT
+            echo "VERSION=$(git describe --tags --always --match "v*.*.*" 2>/dev/null || echo "latest")" >> $GITHUB_OUTPUT
           fi
 
       - name: Build Binaries and Generate Manifest
         run: |
-          make build-all
-          make release-manifest
+          make build-all VERSION=${{ steps.version.outputs.VERSION }}
+          make release-manifest VERSION=${{ steps.version.outputs.VERSION }}
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -49,7 +51,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: github.ref == 'refs/heads/main'
         with:
-          name: Latest Build
+          name: "Latest Build (${{ steps.version.outputs.VERSION }})"
           tag_name: latest
           files: build/*
           prerelease: false

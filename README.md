@@ -1,16 +1,6 @@
 <div align="center">
 
-<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="GIOS icon">
-  <defs>
-    <linearGradient id="giosGradient" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#7D5BA6"/>
-      <stop offset="100%" stop-color="#643173"/>
-    </linearGradient>
-  </defs>
-  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#giosGradient)"/>
-  <path d="M46 32 a14 14 0 1 1 -4 -10" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round"/>
-  <path d="M30 24 L38 32 L30 40" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
+<img src="assets/logo.svg" width="96" height="96" alt="GIOS Logo">
 
 # GIOS
 **The Modern Build System for Legacy and Modern iOS Jailbreak Development**
@@ -21,21 +11,21 @@ GIOS (Go on iOS) is an ultra-fast, cross-platform CLI tool completely written in
 
 No complex theos setup, zero-hassle compiler flags, and a modern CLI developer experience.
 
+---
+
 ## ✨ Key Capabilities
 
 - **Intelligent Orchestration**: Interactive initialization wizard for Legacy (armv7) or Modern Rootless (arm64) targets.
-- **Auto SDK Retrieval**: If targeting legacy APIs, GIOS will securely download, unpack, and route the required iOS (e.g., 9.3) `.tbd` SDK straight from the Theos mirror repositories. 
-- **Automated Deployments**: Connect to your iDevice once to generate and register SSH keys. Subsequently deploy via persistent `ControlMaster` socket without typing a password again.
-- **Native Packaging**: Easily compile and package native Cydia `.deb` packages with proper control files and metadata.
-- **Daemon Mode**: Set `"daemon": true` in your configuration, and GIOS will construct the Plist and install scripts to run your application in the background forever on the device.
-- **Headers & RE**: Automatically extract Objective-C classes and methods from any system binary (like SpringBoard) and generate native Go proxies for them via `gios headers`.
-- **Self-Updating**: Fetches the newest binary release from its GitHub repository via `gios update`.
+- **Auto SDK Retrieval**: Automatically downloads and routes required iOS SDKs (e.g., 9.3) from Theos mirrors.
+- **Advanced Reverse Engineering**: Extract Objective-C classes/methods and generate Go wrappers instantly via `gios headers`.
+- **USB & SSH Support**: Deploy via WiFi (SSH) or high-speed USB tunnel (usbmuxd). No SSH setup needed for core USB utilities.
+- **Native Packaging**: Create Cydia-ready `.deb` packages with automated control file and metadata generation.
+- **Legacy Transpiler**: Automatically patches modern Go code to run on historical iOS versions (32-bit).
+- **Self-Updating**: Keep your toolchain fresh with `gios update`.
 
 ---
 
 ## 🛠 Installation
-
-GIOS is built to be cross-platform out-of-the-box.
 
 ### macOS & Linux
 ```bash
@@ -51,100 +41,104 @@ git clone https://github.com/nikitacontreras/gios.git
 cd gios
 .\install.ps1
 ```
-*(On Windows, you must have Go installed and accessible from your `$env:PATH`. On UNIX, you will additionally need `dpkg` installed (e.g., via your package manager) to use the local `.deb` generator).*
+*(On Windows, ensure Go is in your PATH. On UNIX, `dpkg` is required for `.deb` generation).*
 
 ---
 
-## 📖 Usage Guide
+## 📖 Command Reference
 
-Creating an advanced tweak or backend for an iOS device has never been this declarative. All settings live in a clean `gios.json` file inside your project.
+### 🚀 Core Workflow
+| Command | Description |
+|:--- |:--- |
+| `gios init` | Start the interactive wizard to create a new project. |
+| `gios build` | Compile and sign the binary for your target architecture. |
+| `gios run` | Build, sign, and execute the application on the device. |
+| `gios package` | Generate a `.deb` package for distribution. |
+| `gios install` | Full pipeline: Build → Package → Install on device. |
+| `gios watch` | Enable Pro-mode: Auto-build and redeploy on every file save. |
 
-### 1. Initialize a new Project
-Go to an empty folder and run:
-```bash
-gios init
-```
-An interactive wizard will ask you standard questions like package ID, targeted architecture (Legacy vs Modern Rootless), and whether it should run as a background service. It immediately provisions the Go module, the `gios.json` definition, and custom jailbreak `ents.plist` entitlements.
+### 🌐 Connectivity & Debugging
+| Command | Description |
+|:--- |:--- |
+| `gios connect` | Establish a persistent SSH tunnel (ControlMaster) for passwordless access. |
+| `gios shell` | Open an interactive SSH terminal directly on the iDevice. |
+| `gios logs` | Stream live system logs (`syslog`) to your terminal. |
+| `gios daemon` | Start the background bridge for high-performance remote execution. |
+| `gios disconnect`| Gracefully close all active background tunnels. |
 
-### 2. The GIOS Configuration (`gios.json`)
-The configuration is the heart of GIOS. Here is an example of what the CLI builds for you:
+### 🛠 USB Utilities (No SSH Required)
+| Command | Description |
+|:--- |:--- |
+| `gios info` | Display detailed hardware, battery, and system diagnostics via USB. |
+| `gios screenshot`| Capture the device screen and save it to your local machine. |
+| `gios reboot` | Perform a remote force-reboot of the connected device. |
+| `gios mount` | Smart-detect and mount the required Developer Disk Image (DDI). |
+
+### 🧪 Advanced RE & Tweaks
+| Command | Description |
+|:--- |:--- |
+| `gios headers` | Extract ObjC headers from a process (e.g., `SpringBoard`) and generate Go APIs. |
+| `gios hook` | Generate DSL-based hook boilerplates for SpringBoard modifications. |
+| `gios polyfill` | Manually trigger the compatibility engine for legacy iOS targets. |
+
+### 🩺 Maintenance
+| Command | Description |
+|:--- |:--- |
+| `gios doctor` | Run a diagnostic check on your environment (SDKs, Go, toolchains). |
+| `gios analyze` | Scan your code for symbols that might break on legacy iOS. |
+| `gios diff` | View transpilation changes made to a specific file for 32-bit targets. |
+| `gios sdk` | Manage local iOS SDKs (list, add, or prune unused versions). |
+| `gios update` | Pull the latest version of GIOS from GitHub. |
+
+---
+
+## ⚙️ Configuration (`gios.json`)
+
+The `gios.json` file is the brain of your project. Here's a complete example:
+
 ```json
 {
-  "name": "my-gios-project",
-  "package_id": "com.nikitastrike.miproyecto",
+  "name": "my-project",
+  "package_id": "com.developer.project",
   "version": "1.0.0",
-  "go_version": "go1.14.15",
-  "sdk_version": "9.3",
-  "arch": "armv7",
-  "output": "out_bin",
+  "arch": "armv7",           // armv7 (Legacy) or arm64 (Modern/Rootless)
+  "sdk_version": "9.3",      // Target iOS version
   "main": "main.go",
+  "output": "my_binary",     // Name of the final executable
   "entitlements": "ents.plist",
-  "daemon": false,
+  "daemon": false,           // Set to true to install as a LaunchDaemon
   "deploy": {
-    "ip": "192.168.1.50",
-    "path": "/var/root/out_bin"
+    "ip": "192.168.1.50",    // Device IP for SSH
+    "path": "/var/root/",    // Remote deployment directory
+    "usb": false             // Set to true to prioritize USB over WiFi
   }
 }
 ```
 
-### 3. Build the Application
-Ensure that your configuration is right and type:
-```bash
-gios build
-```
-GIOS will find or download the compiler sysroot, invoke the isolated toolchains (GVM/Native Go), cross-compile your `main.go`, and sign the executable using `ldid`.
+---
 
-### 4. Connect to Device
-Avoid endless password logins by provisioning a fast, background SSH socket tunnel to your iPhone/iPad:
-```bash
-gios connect
-# Passwords will only be requested once to inject the RSA keys.
-```
-*Note: Run `gios disconnect` to destroy the tunnel gracefully when your development session concludes.*
+## 🚩 Global Flags
 
-### 5. Install & Test Real-Time
-To skip building manually, packaging, sending, and executing commands manually, merely type:
-```bash
-gios install
-```
-It runs `build`, creates the Cydia package internally, and pushes it through the rapid tunnel to the target machine while executing native `dpkg -i` on the device's shell.
-
-If you just quickly want to test standard output to your local macOS terminal, run:
-```bash
-gios run --watch
-```
-GIOS will bypass `.deb` creations, transfer the stark binary, and execute the application—piping all iOS device output to your desktop terminal.
-
-### 6. Keep GIOS Updated
-As new versions enter the main repository branch, upgrading your global GIOS CLI is immediate:
-```bash
-gios update
-```
+- `--watch, -w`: Enable continuous development mode.
+- `--unsafe`: Force-transpile `vendor/` dependencies (use with caution).
+- `--out <path>`: Override the output binary name/path.
+- `--ip <ip>`: Temporarily target a different device IP.
+- `--syslog`: Use native USB streaming for logs (requires `idevicesyslog`).
+- `--v, --version`: Show the current GIOS version.
 
 ---
 
 ## 🌟 Examples
 
-Jumpstart your development with these ready-to-use templates:
-
-```text
-example/
-├── 📂 hello_world/        Simple "Hello World" CLI.
-├── 📂 device_info/        Fetch iOS hardware & system metadata.
-├── 📂 web_debug_server/   Premium Web Dashboard & Remote Controls.
-├── 📂 sys_notify_proxy/   Real-time Darwin Notification Interceptor.
-├── 📂 tweak_hello/        SpringBoard Tweak: UI Alert Message Box.
-└── 📂 tweak_status_bar/   System Tweak: Background Heartbeat Logger.
-```
+Jumpstart your development with these ready-to-use templates in the `example/` directory:
 
 | Type | Project | Description |
 |:--- |:--- |:--- |
 | **CLI** | [Hello World](example/hello_world/README.md) | Basic Go execution on iOS. |
 | **CLI**| [Device Info](example/device_info/README.md) | Deep system diagnostics. |
-| **Daemon** | [Web Server](example/web_debug_server/README.md) | **Recommended!** Premium diagnostics dashboard. |
-| **Daemon** | [Sys Notify](example/sys_notify_proxy/README.md) | Listen to global OS events. |
-| **Advanced**| [Headers RE](example/headers/README.md) | **NEW!** Auto-generate Go APIs from iOS binaries. |
-| **Tweak** | [Hello Tweak](example/tweak_hello/README.md) | Inject code into SpringBoard. |
-| **Tweak** | [Status Bar](example/tweak_status_bar/README.md) | Persistent UI modification. |
+| **Daemon** | [Web Server](example/web_debug_server/README.md) | Premium diagnostics dashboard. |
+| **Advanced**| [Headers RE](example/headers/README.md) | Auto-generate Go APIs from iOS binaries. |
+| **Tweak** | [Hello Tweak](example/tweak_hello/README.md) | Inject code into SpringBoard (armv7). |
 
-For a complete breakdown of all examples, see the [Examples Directory Readme](example/README.md).
+---
+*Created by [Nikita Contreras](https://github.com/nikitacontreras)*
