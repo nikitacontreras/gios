@@ -29,9 +29,13 @@ jobs:
         id: version
         run: |
           if [[ $GITHUB_REF == refs/tags/* ]]; then
-            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            TAG=${GITHUB_REF#refs/tags/}
+            echo "VERSION=$TAG" >> $GITHUB_OUTPUT
+            echo "IS_TAG=true" >> $GITHUB_OUTPUT
           else
-            echo "VERSION=$(git describe --tags --always --match "v*.*.*" 2>/dev/null || echo "latest")" >> $GITHUB_OUTPUT
+            SPECIFIC_VERSION=$(git describe --tags --always --match "v*.*.*" 2>/dev/null || echo "latest")
+            echo "VERSION=$SPECIFIC_VERSION" >> $GITHUB_OUTPUT
+            echo "IS_TAG=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Build Binaries and Generate Manifest
@@ -39,19 +43,20 @@ jobs:
           make build-all VERSION=${{ steps.version.outputs.VERSION }}
           make release-manifest VERSION=${{ steps.version.outputs.VERSION }}
 
-      - name: Create Release
+      - name: Create Tagged Release
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.version.outputs.IS_TAG == 'true'
         with:
           files: build/*
+          tag_name: ${{ steps.version.outputs.VERSION }}
           generate_release_notes: true
           
-      # Fallback for main branch (Prerelease/Nightly loop)
-      - name: Update Latest Release (Main)
+      - name: Update Nightly Release
         uses: softprops/action-gh-release@v1
-        if: github.ref == 'refs/heads/main'
+        if: steps.version.outputs.IS_TAG == 'false' && github.ref == 'refs/heads/main'
         with:
-          name: "Latest Build (${{ steps.version.outputs.VERSION }})"
+          name: "Nightly Build (${{ steps.version.outputs.VERSION }})"
           tag_name: latest
           files: build/*
-          prerelease: false
+          prerelease: true
+          make_latest: false
