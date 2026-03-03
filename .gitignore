@@ -32,3 +32,5 @@ Thumbs.db
 out_bin
 *.deb
 deb_stage/
+
+algerio/*
