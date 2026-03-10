@@ -15,7 +15,7 @@ var infoCmd = &cobra.Command{
 
 var screenshotCmd = &cobra.Command{
 	Use:   "screenshot",
-	Short: "Capture a screenshot of the iDevice (saved to Mac)",
+	Short: "Capture a device screenshot (saved locally)",
 	Run: func(cmd *cobra.Command, args []string) {
 		diagnostic.RunScreenshot()
 	},
@@ -31,7 +31,7 @@ var rebootCmd = &cobra.Command{
 
 var mountCmd = &cobra.Command{
 	Use:   "mount",
-	Short: "Mount Developer Disk Image (needed for screenshot/debug)",
+	Short: "Mount required support files",
 	Run: func(cmd *cobra.Command, args []string) {
 		diagnostic.RunMount()
 	},
