@@ -11,7 +11,6 @@ Write-Host "dP   `"`" 88 dP   Yb ``Ybo.`" " -ForegroundColor Cyan
 Write-Host "Yb  `"88 88 Yb   dP o.``Y8b " -ForegroundColor Cyan
 Write-Host " YboodP 88  YbodP  8bodP' " -ForegroundColor Cyan
 Write-Host ""
-Write-Host "GIOS - Universal Windows Installer" -ForegroundColor White
 Write-Host "--------------------------------------------------" -ForegroundColor Cyan
 
 # Detect Architecture
