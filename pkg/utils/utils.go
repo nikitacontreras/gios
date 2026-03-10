@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 )
 
@@ -38,4 +39,15 @@ func Prompt(label, def string) string {
 		return def
 	}
 	return input
+}
+// GetTargetString returns the current platform in 'os-arch' format
+func GetTargetString() string {
+	os := strings.ToLower(runtime.GOOS)
+	arch := strings.ToLower(runtime.GOARCH)
+	if arch == "x86_64" {
+		arch = "amd64"
+	} else if arch == "aarch64" {
+		arch = "arm64"
+	}
+	return fmt.Sprintf("%s-%s", os, arch)
 }
