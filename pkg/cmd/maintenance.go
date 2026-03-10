@@ -14,6 +14,8 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Pull the latest version of GIOS from GitHub and rebuild",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("%s[gios]%s Checking for updates...\n", utils.ColorCyan, utils.ColorReset)
 		// Check if we are in a git repo
 		if _, err := os.Stat(".git"); err == nil {
 			fmt.Printf("%s[gios]%s Git repository detected. Pulling updates...\n", utils.ColorCyan, utils.ColorReset)
