@@ -52,12 +52,10 @@ func RunInfo() {
 		batt, err := diagConn.Battery()
 		if err == nil {
 			fmt.Println("\n" + utils.ColorBold + "--- Battery Status ---" + utils.ColorReset)
-			// Note: IORegistry structure might vary, but Battery() usually gives common fields
-			for k, val := range batt {
-				if strings.Contains(k, "Capacity") || strings.Contains(k, "Connected") {
-					fmt.Printf("%s%-18s%s %v\n", utils.ColorCyan, k+":", utils.ColorReset, val)
-				}
-			}
+			fmt.Printf("%s%-18s%s %v mA\n", utils.ColorCyan, "InstantAmperage:", utils.ColorReset, batt.InstantAmperage)
+			fmt.Printf("%s%-18s%s %v mAh\n", utils.ColorCyan, "CurrentCapacity:", utils.ColorReset, batt.CurrentCapacity)
+			fmt.Printf("%s%-18s%s %v mV\n", utils.ColorCyan, "Voltage:", utils.ColorReset, batt.Voltage)
+			fmt.Printf("%s%-18s%s %v\n", utils.ColorCyan, "IsCharging:", utils.ColorReset, batt.IsCharging)
 		}
 	}
 }
@@ -177,7 +175,6 @@ func RunMount() {
 	os.MkdirAll(ddiDir, 0755)
 
 	dmgPath := filepath.Join(ddiDir, "DeveloperDiskImage.dmg")
-	sigPath := dmgPath + ".signature"
 
 	if _, err := os.Stat(dmgPath); os.IsNotExist(err) {
 		tempZip := filepath.Join(ddiDir, "ddi.zip")
@@ -193,7 +190,6 @@ func RunMount() {
 			if strings.HasSuffix(f.Name, ".dmg") || strings.HasSuffix(f.Name, ".signature") {
 				target := filepath.Join(ddiDir, filepath.Base(f.Name))
 				if strings.HasSuffix(f.Name, ".dmg") { dmgPath = target }
-				if strings.HasSuffix(f.Name, ".signature") { sigPath = target }
 				dst, _ := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 				src, _ := f.Open()
 				io.Copy(dst, src)
