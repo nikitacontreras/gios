@@ -238,7 +238,7 @@ func (m initModel) deployStr() string {
 // Cobra Integration
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Interactive TUI wizard to initialize a GIOS project",
+	Short: "Interactive wizard to initialize a GIOS project",
 	Run: func(cmd *cobra.Command, args []string) {
 		p := tea.NewProgram(initialInitModel())
 		finalModel, err := p.Run()

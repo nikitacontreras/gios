@@ -16,7 +16,7 @@ import (
 
 var watchCmd = &cobra.Command{
 	Use:   "watch",
-	Short: "Enable Pro-mode: Auto-build and redeploy on every file save",
+	Short: "Monitor and redeploy on every file save",
 	Run: func(cmd *cobra.Command, args []string) {
 		RunWatch()
 	},

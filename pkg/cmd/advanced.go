@@ -25,7 +25,7 @@ var hookCmd = &cobra.Command{
 
 var polyfillCmd = &cobra.Command{
 	Use:   "polyfill",
-	Short: "Intelligent compatibility patching for legacy iOS",
+	Short: "Compatibility patching for legacy systems",
 	Run: func(cmd *cobra.Command, args []string) {
 		transpiler.RunPolyfill()
 	},

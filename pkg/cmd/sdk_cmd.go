@@ -193,7 +193,7 @@ var removeSDKCmd = &cobra.Command{
 			return
 		}
 
-		// Simple TUI for removal as well
+		// Selection menu for removal
 		fmt.Println(cyanStyle.Render("\n🔥 SDK PRUNING ENGINE"))
 		for i, s := range downloaded {
 			fmt.Printf("  [%d] %s\n", i+1, s)

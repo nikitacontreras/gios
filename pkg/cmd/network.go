@@ -15,7 +15,7 @@ var logsCmd = &cobra.Command{
 
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
-	Short: "Starts the background Go SSH service (Native mode)",
+	Short: "Starts the background device bridge",
 	Run: func(cmd *cobra.Command, args []string) {
 		deploy.RunDaemon()
 	},
