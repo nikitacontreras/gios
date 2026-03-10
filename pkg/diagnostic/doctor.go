@@ -1,21 +1,20 @@
 package diagnostic
 
 import (
-"github.com/nikitastrike/gios/pkg/config"
-"github.com/nikitastrike/gios/pkg/utils"
-)
-
-
-import (
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/danielpaulus/go-ios/ios"
+	"github.com/nikitastrike/gios/pkg/config"
+	"github.com/nikitastrike/gios/pkg/sdk"
+	"github.com/nikitastrike/gios/pkg/utils"
 )
 
-func RunDoctor() {
+func RunDoctor(fix bool) {
 	fmt.Printf("\n%s[gios]%s Running Gios Environment Diagnostic...\n", utils.ColorCyan, utils.ColorReset)
 	fmt.Println("==========================================")
 
@@ -71,10 +70,22 @@ func RunDoctor() {
 	}
 
 	if sdkCount == 0 {
-		fmt.Printf("%sNONE FOUND%s\n", utils.ColorRed, utils.ColorReset)
-		fmt.Println("    [!] Missing iOS SDKs for cross-compilation.")
-		fmt.Printf("    [!] Use %s'gios sdk add'%s to download one automatically.\n", utils.ColorBold, utils.ColorReset)
-		errors++
+		if fix {
+			fmt.Printf("%sAUTO-FIXING%s (Downloading iOS 14.5 SDK...)\n", utils.ColorYellow, utils.ColorReset)
+			err := sdk.EnsureSDK("14.5", filepath.Join(config.GiosDir, "sdks/iPhoneOS14.5.sdk"))
+			if err == nil {
+				fmt.Printf("    %s[+] Auto-fix successful.%s\n", utils.ColorGreen, utils.ColorReset)
+				sdkCount = 1
+			} else {
+				fmt.Printf("    %s[-] Failed to download SDK: %v%s\n", utils.ColorRed, err, utils.ColorReset)
+				errors++
+			}
+		} else {
+			fmt.Printf("%sNONE FOUND%s\n", utils.ColorRed, utils.ColorReset)
+			fmt.Println("    [!] Missing iOS SDKs for cross-compilation.")
+			fmt.Printf("    [!] Use %s'gios doctor --fix'%s or 'gios sdk add' to download one.\n", utils.ColorBold, utils.ColorReset)
+			errors++
+		}
 	} else {
 		fmt.Printf("%sOK%s (%d SDKs found, primarily in %s)\n", utils.ColorGreen, utils.ColorReset, sdkCount, foundIn)
 	}
@@ -90,36 +101,43 @@ func RunDoctor() {
 
 	fmt.Print("Checking ldid... ")
 	if _, err := exec.LookPath("ldid"); err != nil {
-		fmt.Printf("%sNOT FOUND%s (Only needed for local fakesigning)\n", utils.ColorYellow, utils.ColorReset)
-		warnings++
+		if fix && runtime.GOOS == "darwin" {
+			fmt.Printf("%sAUTO-FIXING%s (brew install ldid)\n", utils.ColorYellow, utils.ColorReset)
+			exec.Command("brew", "install", "ldid").Run()
+		} else {
+			fmt.Printf("%sNOT FOUND%s (Only needed for local fakesigning)\n", utils.ColorYellow, utils.ColorReset)
+			warnings++
+		}
 	} else {
 		fmt.Printf("%sOK%s\n", utils.ColorGreen, utils.ColorReset)
 	}
 
 	fmt.Print("Checking dpkg (packaging)... ")
 	if _, err := exec.LookPath("dpkg-deb"); err != nil {
-		fmt.Printf("%sNOT FOUND%s (Install 'dpkg' to use the package/install commands)\n", utils.ColorYellow, utils.ColorReset)
-		warnings++
+		if fix && runtime.GOOS == "darwin" {
+			fmt.Printf("%sAUTO-FIXING%s (brew install dpkg)\n", utils.ColorYellow, utils.ColorReset)
+			exec.Command("brew", "install", "dpkg").Run()
+		} else {
+			fmt.Printf("%sNOT FOUND%s (Install 'dpkg' to use the package/install commands)\n", utils.ColorYellow, utils.ColorReset)
+			warnings++
+		}
 	} else {
 		fmt.Printf("%sOK%s\n", utils.ColorGreen, utils.ColorReset)
 	}
 
-	// 5. libimobiledevice Check
-	fmt.Print("Checking libimobiledevice (USB)... ")
-	hasIdeviceId := false
-	if _, err := exec.LookPath("idevice_id"); err == nil {
-		hasIdeviceId = true
-	}
-	hasIproxy := false
-	if _, err := exec.LookPath("iproxy"); err == nil {
-		hasIproxy = true
-	}
-
-	if hasIdeviceId && hasIproxy {
-		fmt.Printf("%sFOUND%s (USB development supported via iproxy)\n", utils.ColorGreen, utils.ColorReset)
+	// 5. Native USB check (usbmuxd)
+	fmt.Print("Checking usbmuxd (Native USB)... ")
+	mux, err := ios.NewUsbMuxConnectionSimple()
+	if err == nil {
+		mux.Close()
+		fmt.Printf("%sFOUND%s (Universal USB support enabled)\n", utils.ColorGreen, utils.ColorReset)
 	} else {
-		fmt.Printf("%sLIMITED%s (Install libimobiledevice for fast USB deployment)\n", utils.ColorYellow, utils.ColorReset)
-		warnings++
+		if runtime.GOOS == "darwin" {
+			fmt.Printf("%sRUNNING%s (macOS native)\n", utils.ColorGreen, utils.ColorReset)
+		} else {
+			fmt.Printf("%sNOT FOUND%s (Ensure usbmuxd daemon is running)\n", utils.ColorRed, utils.ColorReset)
+			errors++
+		}
 	}
 
 	// 6. config.Config Check

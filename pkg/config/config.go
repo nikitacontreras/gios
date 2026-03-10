@@ -37,6 +37,13 @@ type PlatformAssets struct {
 	} `json:"ddis"`
 }
 
+// GlobalConfig represents the ~/.gios/config.json global settings
+type GlobalConfig struct {
+	DefaultIP     string `json:"default_ip,omitempty"`
+	DeveloperName string `json:"developer_name,omitempty"`
+	FavoriteSDK   string `json:"favorite_sdk,omitempty"`
+}
+
 // Config represents the gios.json structure
 type Config struct {
 	Name         string `json:"name"`
@@ -86,6 +93,18 @@ func LoadConfigSafe() (Config, error) {
 
 	var conf Config
 	json.Unmarshal(data, &conf)
+
+	// Load Global Config as fallback
+	globalConfPath := filepath.Join(GiosDir, "config.json")
+	if globalData, err := os.ReadFile(globalConfPath); err == nil {
+		var gConf GlobalConfig
+		if err := json.Unmarshal(globalData, &gConf); err == nil {
+			if conf.Deploy.IP == "" && gConf.DefaultIP != "" {
+				conf.Deploy.IP = gConf.DefaultIP
+			}
+			// Future usage for gConf.DeveloperName and gConf.FavoriteSDK
+		}
+	}
 
 	// Defaults logic
 	if conf.Output == "" {

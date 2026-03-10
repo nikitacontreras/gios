@@ -1,18 +1,16 @@
 package deploy
 
 import (
-"github.com/nikitastrike/gios/pkg/config"
-"github.com/nikitastrike/gios/pkg/utils"
-)
-
-
-import (
 	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/danielpaulus/go-ios/ios/syslog"
+	"github.com/nikitastrike/gios/pkg/config"
+	"github.com/nikitastrike/gios/pkg/utils"
 )
 
 func RunLogs() {
@@ -43,7 +41,7 @@ func RunLogs() {
 		projectName = conf.Name
 		if conf.Deploy.USB {
 			targetDisp = "USB Device"
-			if !EnsureUSBTunnel(conf) {
+			if !EnsureUSBTunnelNative() {
 				return
 			}
 		}
@@ -58,17 +56,26 @@ func RunLogs() {
 	}
 
 	if isSyslog {
-		fmt.Printf("%s[gios]%s Streaming native syslog via USB (idevicesyslog)...\n", utils.ColorCyan, utils.ColorReset)
-		cmd := exec.Command("idevicesyslog")
-		stdout, _ := cmd.StdoutPipe()
-		if err := cmd.Start(); err != nil {
-			fmt.Printf("%s[!] Error:%s idevicesyslog failed. Is it installed? %v\n", utils.ColorRed, utils.ColorReset, err)
+		fmt.Printf("%s[gios]%s Streaming native syslog via USB...\n", utils.ColorCyan, utils.ColorReset)
+		device, err := GetFirstDevice()
+		if err != nil {
+			fmt.Printf("%s[!] Error:%s %v\n", utils.ColorRed, utils.ColorReset, err)
 			return
 		}
+		
+		conn, err := syslog.New(device)
+		if err != nil {
+			fmt.Printf("%s[!] Error:%s Failed to connect to syslog: %v\n", utils.ColorRed, utils.ColorReset, err)
+			return
+		}
+		defer conn.Close()
 
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			printLogLine(scanner.Text(), projectName)
+		for {
+			line, err := conn.ReadLogMessage()
+			if err != nil {
+				break
+			}
+			printLogLine(line, projectName)
 		}
 		return
 	}

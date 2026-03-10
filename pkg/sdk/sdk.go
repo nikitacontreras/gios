@@ -3,6 +3,7 @@ package sdk
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/nikitastrike/gios/pkg/config"
+	"github.com/schollz/progressbar/v3"
 )
 
 const RemoteAssetsURL = "https://raw.githubusercontent.com/nikitacontreras/gios-platform-assets/main/assets.json"
@@ -140,17 +142,37 @@ func EnsureSDK(version, targetPath string) error {
 
 func DownloadURLToFile(url, targetPath string, showProgress bool) error {
 	escapedURL := strings.ReplaceAll(url, " ", "%20")
-	args := []string{"-L", "-o", targetPath}
-	if showProgress {
-		args = append(args, "-#")
-	} else {
-		args = append(args, "-s")
+	req, err := http.NewRequest("GET", escapedURL, nil)
+	if err != nil {
+		return err
 	}
-	args = append(args, escapedURL)
-	cmd := exec.Command("curl", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	f, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	var reader io.Reader = resp.Body
+	if showProgress {
+		bar := progressbar.DefaultBytes(
+			resp.ContentLength,
+			"Downloading",
+		)
+		reader = io.TeeReader(resp.Body, bar)
+	}
+
+	_, err = io.Copy(f, reader)
+	return err
 }
 
 func EnsureSDKFromURL(version, targetPath, customUrl string) error {

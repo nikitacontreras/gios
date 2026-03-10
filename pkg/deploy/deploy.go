@@ -78,24 +78,7 @@ func EnsureUSBTunnel(conf config.Config) bool {
 	if !conf.Deploy.USB {
 		return true
 	}
-
-	if _, err := exec.LookPath("idevice_id"); err != nil {
-		fmt.Printf("%s[!] Error: 'idevice_id' not found. Please install libimobiledevice%s\n", utils.ColorRed, utils.ColorReset)
-		return false
-	}
-
-	if _, err := exec.LookPath("iproxy"); err != nil {
-		fmt.Printf("%s[!] Error: 'iproxy' not found. Please install libimobiledevice.%s\n", utils.ColorRed, utils.ColorReset)
-		return false
-	}
-
-	out, _ := exec.Command("idevice_id", "-l").Output()
-	if len(strings.TrimSpace(string(out))) == 0 {
-		fmt.Printf("%s[!] Warning: No iOS device detected via USB. Ensure it's plugged in.%s\n", utils.ColorYellow, utils.ColorReset)
-		return false
-	}
-
-	return true
+	return EnsureUSBTunnelNative()
 }
 
 func Run(unsafeFlag, watch bool) {
@@ -323,7 +306,7 @@ func Connect() {
 
 func Disconnect() {
 	fmt.Println("[gios] Closing all background tunnels...")
-	exec.Command("pkill", "iproxy").Run()
+	StopAllForwarders()
 	fmt.Println("[+] Disconnected.")
 }
 
