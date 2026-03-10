@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - development
     tags:
       - 'v*'
 
@@ -53,7 +54,7 @@ jobs:
           
       - name: Update Nightly Release
         uses: softprops/action-gh-release@v1
-        if: steps.version.outputs.IS_TAG == 'false' && github.ref == 'refs/heads/main'
+        if: steps.version.outputs.IS_TAG == 'false' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development')
         with:
           name: "Nightly Build (${{ steps.version.outputs.VERSION }})"
           tag_name: latest
