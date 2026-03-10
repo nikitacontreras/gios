@@ -25,14 +25,22 @@ No complex theos setup, zero-hassle compiler flags, and a modern CLI developer e
 
 ---
 
-## 🛠 Installation
+### ⚡ Easy Installation (Recommended)
+**macOS & Linux:**
+```bash
+curl -sL https://raw.githubusercontent.com/nikitacontreras/gios/development/install.sh | bash
+```
 
-### macOS & Linux
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/nikitacontreras/gios/development/install.ps1 | iex
+```
+
+### Manual Installation
 ```bash
 git clone https://github.com/nikitacontreras/gios.git
 cd gios
-chmod +x install.sh
-./install.sh
+make install
 ```
 
 ### Windows (PowerShell)
