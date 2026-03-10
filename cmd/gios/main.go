@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	AppVersion = "v1.2.0"
+	AppVersion = "v1.3.0"
 	BuildTime  = "unknown"
 )
 
