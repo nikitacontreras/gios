@@ -1,4 +1,4 @@
-package main
+package deploy
 
 import (
 	"encoding/json"
@@ -7,21 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/nikitastrike/gios/pkg/config"
 )
 
-type DaemonRequest struct {
-	Command string `json:"command"` // "exec" or "upload"
-	Payload string `json:"payload"` // command string or local path
-	Remote  string `json:"remote"`  // remote path for upload
-}
-
-type DaemonResponse struct {
-	Output string `json:"output"`
-	Error  string `json:"error"`
-}
-
-func runDaemon() {
-	conf := loadConfig()
+func RunDaemon() {
+	conf := config.LoadConfig()
 	if (len(os.Args) >= 3 && strings.ToLower(os.Args[2]) == "usb") || conf.Deploy.USB {
 		conf.Deploy.USB = true
 		conf.Deploy.IP = "127.0.0.1"
@@ -30,7 +21,7 @@ func runDaemon() {
 	targetDisp := conf.Deploy.IP
 	if conf.Deploy.USB {
 		targetDisp = "USB Device (127.0.0.1:2222)"
-		ensureUSBTunnel(conf)
+		EnsureUSBTunnel(conf)
 	}
 
 	fmt.Printf("[gios] Starting native SSH daemon for %s...\n", targetDisp)
@@ -42,7 +33,7 @@ func runDaemon() {
 	}
 	defer client.Close()
 
-	socketPath := filepath.Join(giosDir, "gios.sock")
+	socketPath := filepath.Join(config.GiosDir, "gios.sock")
 	os.Remove(socketPath)
 
 	l, err := net.Listen("unix", socketPath)
@@ -93,8 +84,8 @@ func handleDaemonConn(conn net.Conn, client *SSHClient) {
 	json.NewEncoder(conn).Encode(resp)
 }
 
-func callDaemon(req DaemonRequest) (*DaemonResponse, error) {
-	socketPath := filepath.Join(giosDir, "gios.sock")
+func InternalCallDaemon(req DaemonRequest) (*DaemonResponse, error) {
+	socketPath := filepath.Join(config.GiosDir, "gios.sock")
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
 		return nil, err

@@ -1,4 +1,9 @@
-package main
+package deploy
+
+import (
+"github.com/nikitastrike/gios/pkg/config"
+)
+
 
 import (
 	"fmt"
@@ -14,12 +19,12 @@ import (
 // SSHClient represents a managed SSH connection
 type SSHClient struct {
 	client *ssh.Client
-	config Config
+	config config.Config
 }
 
 // NewSSHClient creates a new SSH connection using the project configuration (key-based)
-func NewSSHClient(c Config) (*SSHClient, error) {
-	sshKeyPath := filepath.Join(giosDir, "id_rsa")
+func NewSSHClient(c config.Config) (*SSHClient, error) {
+	sshKeyPath := filepath.Join(config.GiosDir, "id_rsa")
 	key, err := ioutil.ReadFile(sshKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read private key: %v", err)
@@ -71,7 +76,7 @@ func NewSSHClient(c Config) (*SSHClient, error) {
 }
 
 // NewSSHClientWithPassword creates a new SSH connection using a password
-func NewSSHClientWithPassword(c Config, password string) (*SSHClient, error) {
+func NewSSHClientWithPassword(c config.Config, password string) (*SSHClient, error) {
 	host := c.Deploy.IP
 	port := "22"
 	if c.Deploy.USB {

@@ -140,5 +140,3 @@ Jumpstart your development with these ready-to-use templates in the `example/` d
 | **Advanced**| [Headers RE](example/headers/README.md) | Auto-generate Go APIs from iOS binaries. |
 | **Tweak** | [Hello Tweak](example/tweak_hello/README.md) | Inject code into SpringBoard (armv7). |
 
----
-*Created by [Nikita Contreras](https://github.com/nikitacontreras)*
