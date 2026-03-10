@@ -44,7 +44,7 @@ jobs:
           make release-manifest VERSION=${{ steps.version.outputs.VERSION }}
 
       - name: Create Tagged Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         if: steps.version.outputs.IS_TAG == 'true'
         with:
           files: build/*
@@ -52,7 +52,7 @@ jobs:
           generate_release_notes: true
           
       - name: Update Nightly Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         if: steps.version.outputs.IS_TAG == 'false' && github.ref == 'refs/heads/main'
         with:
           name: "Nightly Build (${{ steps.version.outputs.VERSION }})"
