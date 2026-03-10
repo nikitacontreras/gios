@@ -1,4 +1,4 @@
-package main
+package diagnostic
 
 import (
 	"bufio"
@@ -7,16 +7,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-)
 
-// ANSI colors
-const (
-	ColorReset  = "\033[0m"
-	ColorRed    = "\033[31m"
-	ColorGreen  = "\033[32m"
-	ColorYellow = "\033[33m"
-	ColorCyan   = "\033[36m"
-	ColorBold   = "\033[1m"
+	"github.com/nikitastrike/gios/pkg/config"
+	"github.com/nikitastrike/gios/pkg/utils"
 )
 
 type Finding struct {
@@ -56,63 +49,56 @@ func printRow(factor, risk, found, icon, status string) {
 	}
 	fStr := fName + safeRepeat(" ", wFactor-len(fName))
 
-	rColor := ColorReset
+	rColor := utils.ColorReset
 	switch risk {
 	case "Critical", "High":
-		rColor = ColorRed
+		rColor = utils.ColorRed
 	case "Medium":
-		rColor = ColorYellow
+		rColor = utils.ColorYellow
 	case "Low":
-		rColor = ColorCyan
+		rColor = utils.ColorCyan
 	case "None":
-		rColor = ColorGreen
+		rColor = utils.ColorGreen
 	}
-	rStr := rColor + risk + ColorReset + safeRepeat(" ", wRisk-len(risk))
+	rStr := rColor + risk + utils.ColorReset + safeRepeat(" ", wRisk-len(risk))
 
 	foStr := found + safeRepeat(" ", wFound-len(found))
 
-	sColor := ColorReset
+	sColor := utils.ColorReset
 	switch status {
 	case "DANGER":
-		sColor = ColorRed
+		sColor = utils.ColorRed
 	case "WARNING":
-		sColor = ColorYellow
+		sColor = utils.ColorYellow
 	case "AUTOFIX":
-		sColor = ColorCyan
+		sColor = utils.ColorCyan
 	case "NATIVE", "OK":
-		sColor = ColorGreen
+		sColor = utils.ColorGreen
 	}
-	stStr := sColor + status + ColorReset + safeRepeat(" ", wStatus-len(status))
+	stStr := sColor + status + utils.ColorReset + safeRepeat(" ", wStatus-len(status))
 
 	fmt.Printf("│ %s │ %s │ %s │ %s %s │\n", fStr, rStr, foStr, icon, stStr)
 }
 
-func analyzeProject() {
+func AnalyzeProject(verbose bool) {
 	// Check if gios project
 	if _, err := os.Stat("gios.json"); os.IsNotExist(err) {
-		fmt.Println(ColorRed + "Error: This directory is not a Gios project (gios.json not found)." + ColorReset)
+		fmt.Println(utils.ColorRed + "Error: This directory is not a Gios project (gios.json not found)." + utils.ColorReset)
 		fmt.Println("Please run 'gios init' or navigate to a project directory.")
 		return
 	}
 
-	conf := loadConfig()
+	conf := config.LoadConfig()
 	isLegacy := conf.Arch == "armv7"
 	targetName := "Modern (arm64)"
 	if isLegacy {
 		targetName = "Legacy (armv7)"
 	}
 
-	verbose := false
-	for _, arg := range os.Args {
-		if arg == "--verbose" || arg == "-v" {
-			verbose = true
-			break
-		}
-	}
 
 	cwd, _ := os.Getwd()
 	fmt.Printf("\n%s[gios]%s Analyzing project for %s%s%s compatibility: %s%s%s\n", 
-		ColorCyan, ColorReset, ColorBold, targetName, ColorReset, ColorBold, filepath.Base(cwd), ColorReset)
+		utils.ColorCyan, utils.ColorReset, utils.ColorBold, targetName, utils.ColorReset, utils.ColorBold, filepath.Base(cwd), utils.ColorReset)
 
 	riskFactors := map[string]*RiskFactor{
 		"Generics":  {Name: "Go Generics (1.18+)", Risk: "High", Occurrences: 0},
@@ -186,7 +172,7 @@ func analyzeProject() {
 		return nil
 	})
 
-	fmt.Printf("%s[gios]%s Scanned %d Go files.\n\n", ColorCyan, ColorReset, totalFiles)
+	fmt.Printf("%s[gios]%s Scanned %d Go files.\n\n", utils.ColorCyan, utils.ColorReset, totalFiles)
 	
 	// Borders
 	wFactor := 29
@@ -225,24 +211,24 @@ func analyzeProject() {
 	fmt.Println("└" + strings.Repeat("─", wFactor+2) + "┴" + strings.Repeat("─", wRisk+2) + "┴" + strings.Repeat("─", wFound+2) + "┴" + strings.Repeat("─", wStatus+2) + "┘")
 
 	if verbose {
-		fmt.Println("\n" + ColorBold + "--- DETAILED FINDINGS ---" + ColorReset)
+		fmt.Println("\n" + utils.ColorBold + "--- DETAILED FINDINGS ---" + utils.ColorReset)
 		for _, k := range keys {
 			f := riskFactors[k]
 			for _, find := range f.Findings {
-				fmt.Printf("%s%s:%d%s [%s] -> %s\n", ColorCyan, find.File, find.Line, ColorReset, f.Name, ColorYellow+find.Code+ColorReset)
+				fmt.Printf("%s%s:%d%s [%s] -> %s\n", utils.ColorCyan, find.File, find.Line, utils.ColorReset, f.Name, utils.ColorYellow+find.Code+utils.ColorReset)
 			}
 		}
 	}
 
 	if isLegacy && problems > 0 {
-		fmt.Printf("\n%s[!] Conclusion:%s Project has significant legacy compatibility risks.\n", ColorRed, ColorReset)
+		fmt.Printf("\n%s[!] Conclusion:%s Project has significant legacy compatibility risks.\n", utils.ColorRed, utils.ColorReset)
 		if !verbose {
 			fmt.Println("    Use 'gios analyze --verbose' to see exactly where the issues are.")
 		}
-		fmt.Printf("    Use %s'gios run --unsafe'%s to attempt automated backporting.\n", ColorBold, ColorReset)
+		fmt.Printf("    Use %s'gios run --unsafe'%s to attempt automated backporting.\n", utils.ColorBold, utils.ColorReset)
 	} else if !isLegacy {
-		fmt.Printf("\n%s[+] Conclusion:%s Modern target detected. All features natively supported!\n", ColorGreen, ColorReset)
+		fmt.Printf("\n%s[+] Conclusion:%s Modern target detected. All features natively supported!\n", utils.ColorGreen, utils.ColorReset)
 	} else {
-		fmt.Printf("\n%s[+] Conclusion:%s Project looks compatible with legacy iOS!\n", ColorGreen, ColorReset)
+		fmt.Printf("\n%s[+] Conclusion:%s Project looks compatible with legacy iOS!\n", utils.ColorGreen, utils.ColorReset)
 	}
 }

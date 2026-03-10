@@ -1,4 +1,4 @@
-package main
+package deploy
 
 import (
 	"bufio"
@@ -7,11 +7,15 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/danielpaulus/go-ios/ios/syslog"
+	"github.com/nikitastrike/gios/pkg/config"
+	"github.com/nikitastrike/gios/pkg/utils"
 )
 
-func runLogs() {
+func RunLogs() {
 	// Attempt to load config, but don't die if it fails and we just want --syslog
-	conf, err := loadConfigSafe()
+	conf, err := config.LoadConfigSafe()
 	
 	isSyslog := false
 	for _, arg := range os.Args {
@@ -21,12 +25,12 @@ func runLogs() {
 	}
 
 	if err != nil && !isSyslog {
-		fmt.Printf("%sError: gios.json not found. Run 'gios init' first or use --syslog for USB-only logs.%s\n", ColorRed, ColorReset)
+		fmt.Printf("%sError: gios.json not found. Run 'gios init' first or use --syslog for USB-only logs.%s\n", utils.ColorRed, utils.ColorReset)
 		return
 	}
 
 	if !isSyslog && !conf.Deploy.USB && conf.Deploy.IP == "" {
-		fmt.Printf("%sError: Target Device IP not set in gios.json.%s\n", ColorRed, ColorReset)
+		fmt.Printf("%sError: Target Device IP not set in gios.json.%s\n", utils.ColorRed, utils.ColorReset)
 		return
 	}
 
@@ -37,7 +41,7 @@ func runLogs() {
 		projectName = conf.Name
 		if conf.Deploy.USB {
 			targetDisp = "USB Device"
-			if !ensureUSBTunnel(conf) {
+			if !EnsureUSBTunnelNative() {
 				return
 			}
 		}
@@ -52,22 +56,31 @@ func runLogs() {
 	}
 
 	if isSyslog {
-		fmt.Printf("%s[gios]%s Streaming native syslog via USB (idevicesyslog)...\n", ColorCyan, ColorReset)
-		cmd := exec.Command("idevicesyslog")
-		stdout, _ := cmd.StdoutPipe()
-		if err := cmd.Start(); err != nil {
-			fmt.Printf("%s[!] Error:%s idevicesyslog failed. Is it installed? %v\n", ColorRed, ColorReset, err)
+		fmt.Printf("%s[gios]%s Streaming native syslog via USB...\n", utils.ColorCyan, utils.ColorReset)
+		device, err := GetFirstDevice()
+		if err != nil {
+			fmt.Printf("%s[!] Error:%s %v\n", utils.ColorRed, utils.ColorReset, err)
 			return
 		}
+		
+		conn, err := syslog.New(device)
+		if err != nil {
+			fmt.Printf("%s[!] Error:%s Failed to connect to syslog: %v\n", utils.ColorRed, utils.ColorReset, err)
+			return
+		}
+		defer conn.Close()
 
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			printLogLine(scanner.Text(), projectName)
+		for {
+			line, err := conn.ReadLogMessage()
+			if err != nil {
+				break
+			}
+			printLogLine(line, projectName)
 		}
 		return
 	}
 
-	fmt.Printf("%s[gios]%s Searching for active log agent on %s...\n", ColorCyan, ColorReset, targetDisp)
+	fmt.Printf("%s[gios]%s Searching for active log agent on %s...\n", utils.ColorCyan, utils.ColorReset, targetDisp)
 
 	// List of commands for logging.
 	logCommands := []string{
@@ -83,7 +96,7 @@ func runLogs() {
 L:
 	for i, logCmd := range logCommands {
 		if verbose {
-			fmt.Printf("[gios] Trying: %-35s ", ColorBold+logCmd+ColorReset)
+			fmt.Printf("[gios] Trying: %-35s ", utils.ColorBold+logCmd+utils.ColorReset)
 		} else {
 			fmt.Printf("\r[gios] Checking log agents: [%d/%d] ", i+1, len(logCommands))
 		}
@@ -98,7 +111,7 @@ L:
 
 		if err := cmd.Start(); err != nil {
 			if verbose {
-				fmt.Printf("%s[SSH FAIL]%s\n", ColorRed, ColorReset)
+				fmt.Printf("%s[SSH FAIL]%s\n", utils.ColorRed, utils.ColorReset)
 			}
 			continue
 		}
@@ -129,9 +142,9 @@ L:
 		case line := <-outChan:
 			success = true
 			if !verbose {
-				fmt.Printf("%sDONE!%s\n", ColorGreen, ColorReset)
+				fmt.Printf("%sDONE!%s\n", utils.ColorGreen, utils.ColorReset)
 			} else {
-				fmt.Printf("%s[FOUND]%s\n", ColorGreen, ColorReset)
+				fmt.Printf("%s[FOUND]%s\n", utils.ColorGreen, utils.ColorReset)
 			}
 			fmt.Println("--------------------------------------------------")
 			printLogLine(line, conf.Name)
@@ -141,7 +154,7 @@ L:
 			break L
 		case <-errChan:
 			if verbose {
-				fmt.Printf("%s[MISSING]%s\n", ColorRed, ColorReset)
+				fmt.Printf("%s[MISSING]%s\n", utils.ColorRed, utils.ColorReset)
 			}
 			cmd.Process.Kill()
 			cmd.Wait()
@@ -151,9 +164,9 @@ L:
 			// Likely a valid but idle 'tail -f'
 			success = true
 			if !verbose {
-				fmt.Printf("%sCONNECTED%s\n", ColorGreen, ColorReset)
+				fmt.Printf("%sCONNECTED%s\n", utils.ColorGreen, utils.ColorReset)
 			} else {
-				fmt.Printf("%s[READY]%s (Idle)\n", ColorGreen, ColorReset)
+				fmt.Printf("%s[READY]%s (Idle)\n", utils.ColorGreen, utils.ColorReset)
 			}
 			fmt.Println("--------------------------------------------------")
 			fmt.Println("(Waiting for new log entries...)")
@@ -166,7 +179,7 @@ L:
 
 	if !success {
 		if !verbose { fmt.Println() }
-		fmt.Printf("\n%s[!] Error: No log agent could be established.%s\n", ColorRed, ColorReset)
+		fmt.Printf("\n%s[!] Error: No log agent could be established.%s\n", utils.ColorRed, utils.ColorReset)
 		fmt.Println("This iPad doesn't seem to have a syslog daemon active.")
 		fmt.Println("\nTo fix this:")
 		fmt.Println(" 1. Open Cydia/Sileo on your iPad.")
@@ -178,11 +191,11 @@ L:
 func printLogLine(line, projectName string) {
 	lowerLine := strings.ToLower(line)
 	if projectName != "" && strings.Contains(lowerLine, strings.ToLower(projectName)) {
-		fmt.Printf("%s%s%s\n", ColorBold+ColorYellow, line, ColorReset)
+		fmt.Printf("%s%s%s\n", utils.ColorBold+utils.ColorYellow, line, utils.ColorReset)
 	} else if strings.Contains(lowerLine, "error") || strings.Contains(lowerLine, "fail") {
-		fmt.Printf("%s%s%s\n", ColorRed, line, ColorReset)
+		fmt.Printf("%s%s%s\n", utils.ColorRed, line, utils.ColorReset)
 	} else if strings.Contains(lowerLine, "warn") {
-		fmt.Printf("%s%s%s\n", ColorYellow, line, ColorReset)
+		fmt.Printf("%s%s%s\n", utils.ColorYellow, line, utils.ColorReset)
 	} else {
 		fmt.Println(line)
 	}

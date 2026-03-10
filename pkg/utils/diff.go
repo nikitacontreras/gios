@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"bytes"
@@ -11,13 +11,13 @@ import (
 	"strings"
 )
 
-func runDiff(filePath string) {
+func RunDiff(filePath string) {
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		fmt.Printf("%sError: File not found: %s%s\n", ColorRed, filePath, ColorReset)
 		return
 	}
 
-	fmt.Printf("%s[gios]%s Comparing original vs transpiled: %s%s%s\n", 
+	fmt.Printf("%s[gios]%s Comparing original vs transpiled: %s%s%s\n",
 		ColorCyan, ColorReset, ColorBold, filePath, ColorReset)
 
 	// Read original content
@@ -32,7 +32,7 @@ func runDiff(filePath string) {
 	// assume we've slightly refactored TranspileLegacy or just re-implement the core logic here
 	// for a single file. (Since TranspileLegacy is quite coupled, for now we will re-implement
 	// a "preview" version).
-	
+
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
 	if err != nil {
@@ -66,7 +66,7 @@ func runDiff(filePath string) {
 		fmt.Printf("Error formatting node: %v\n", err)
 		return
 	}
-	
+
 	transpiled := buf.String()
 	// Apply regex replacements for any, UnixMilli, etc.
 	transpiled = strings.ReplaceAll(transpiled, "any", "interface{}")
@@ -79,18 +79,28 @@ func runDiff(filePath string) {
 	// Simple diff viewer (LCS is overkill for a quick CLI tool, let's just do line comparisons)
 	fmt.Println("--------------------------------------------------")
 	maxLines := len(origLines)
-	if len(transLines) > maxLines { maxLines = len(transLines) }
-	
+	if len(transLines) > maxLines {
+		maxLines = len(transLines)
+	}
+
 	hasDiff := false
 	for i := 0; i < maxLines; i++ {
 		o := ""
-		if i < len(origLines) { o = strings.TrimSpace(origLines[i]) }
+		if i < len(origLines) {
+			o = strings.TrimSpace(origLines[i])
+		}
 		t := ""
-		if i < len(transLines) { t = strings.TrimSpace(transLines[i]) }
+		if i < len(transLines) {
+			t = strings.TrimSpace(transLines[i])
+		}
 
 		if o != t {
-			if o != "" { fmt.Printf("%s- %4d: %s%s\n", ColorRed, i+1, strings.TrimSpace(origLines[i]), ColorReset) }
-			if t != "" { fmt.Printf("%s+ %4d: %s%s\n", ColorGreen, i+1, strings.TrimSpace(transLines[i]), ColorReset) }
+			if o != "" {
+				fmt.Printf("%s- %4d: %s%s\n", ColorRed, i+1, strings.TrimSpace(origLines[i]), ColorReset)
+			}
+			if t != "" {
+				fmt.Printf("%s+ %4d: %s%s\n", ColorGreen, i+1, strings.TrimSpace(transLines[i]), ColorReset)
+			}
 			hasDiff = true
 		}
 	}

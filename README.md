@@ -25,14 +25,22 @@ No complex theos setup, zero-hassle compiler flags, and a modern CLI developer e
 
 ---
 
-## 🛠 Installation
+### ⚡ Easy Installation (Recommended)
+**macOS & Linux:**
+```bash
+curl -sL https://raw.githubusercontent.com/nikitacontreras/gios/development/install.sh | bash
+```
 
-### macOS & Linux
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/nikitacontreras/gios/development/install.ps1 | iex
+```
+
+### Manual Installation
 ```bash
 git clone https://github.com/nikitacontreras/gios.git
 cd gios
-chmod +x install.sh
-./install.sh
+make install
 ```
 
 ### Windows (PowerShell)
@@ -140,5 +148,3 @@ Jumpstart your development with these ready-to-use templates in the `example/` d
 | **Advanced**| [Headers RE](example/headers/README.md) | Auto-generate Go APIs from iOS binaries. |
 | **Tweak** | [Hello Tweak](example/tweak_hello/README.md) | Inject code into SpringBoard (armv7). |
 
----
-*Created by [Nikita Contreras](https://github.com/nikitacontreras)*

@@ -1,26 +1,60 @@
-$ErrorActionPreference = "Stop"
+# GIOS Windows Native Installer
+# This script downloads and installs the gios binary to $HOME\.gios\bin
 
-$GiosBinDir = Join-Path $env:USERPROFILE ".gios\bin"
+$Repo = "nikitacontreras/gios"
+$GiosDir = Join-Path $HOME ".gios"
+$BinDir = Join-Path $GiosDir "bin"
 
-Write-Host "=> Compiling gios CLI..."
-go build -o gios.exe main.go
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
+Write-Host "   🚀 GIOS - Universal Windows Installer" -ForegroundColor Cyan
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
 
-Write-Host "=> Creating installation directory at $GiosBinDir..."
-if (-not (Test-Path -Path $GiosBinDir)) {
-    New-Item -ItemType Directory -Path $GiosBinDir | Out-Null
+# Detect Architecture
+$Arch = "amd64"
+if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+    $Arch = "arm64"
 }
 
-Write-Host "=> Installing gios to $GiosBinDir..."
-Copy-Item -Path "gios.exe" -Destination (Join-Path $GiosBinDir "gios.exe") -Force
-Remove-Item -Path "gios.exe" -Force
-
-Write-Host "=> Mission accomplished!"
-
-$PathMatch = ($env:PATH -split ';') -contains $GiosBinDir
-if (-not $PathMatch) {
-    Write-Host "NOTE: The installation directory is not in your PATH." -ForegroundColor Yellow
-    Write-Host "You can add it by running the following command:"
-    Write-Host "[Environment]::SetEnvironmentVariable(`"Path`", `$env:Path + `";$GiosBinDir`", `"User`")"
-} else {
-    Write-Host "The 'gios' tool has been successfully installed or updated!" -ForegroundColor Green
+# Ensure bin directory exists
+if (!(Test-Path $BinDir)) {
+    New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 }
+
+Write-Host "[1/3] Fetching latest release info..." -ForegroundColor White
+$ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
+try {
+    $Release = Invoke-RestMethod -Uri $ApiUrl -Method Get
+    $Tag = $Release.tag_name
+} catch {
+    Write-Host " [!] Stable release not found, falling back to nightly..." -ForegroundColor Yellow
+    $Tag = "latest"
+}
+
+$BinaryName = "gios-windows-$Arch.exe"
+$DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/$BinaryName"
+$DestPath = Join-Path $BinDir "gios.exe"
+
+Write-Host "[2/3] Downloading GIOS $Tag ($Arch)..." -ForegroundColor White
+try {
+    Invoke-WebRequest -Uri $DownloadUrl -OutFile $DestPath
+} catch {
+    Write-Host " [!] Error downloading binary: $_" -ForegroundColor Red
+    exit
+}
+
+Write-Host "[3/3] Finalizing installation..." -ForegroundColor White
+
+# Update PATH if needed
+$CurrentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($CurrentPath -notlike "*$BinDir*") {
+    Write-Host " [+] Adding GIOS to User PATH..." -ForegroundColor Green
+    $NewPath = "$CurrentPath;$BinDir"
+    [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
+    $env:Path = "$env:Path;$BinDir"
+}
+
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
+Write-Host "✅ GIOS installed successfully to $BinDir\gios.exe" -ForegroundColor Green
+Write-Host "   Please restart your terminal to use 'gios'." -ForegroundColor White
+Write-Host "   Try running: gios doctor" -ForegroundColor White
+Write-Host "--------------------------------------------------" -ForegroundColor Cyan
