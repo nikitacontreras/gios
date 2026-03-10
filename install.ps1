@@ -5,8 +5,13 @@ $Repo = "nikitacontreras/gios"
 $GiosDir = Join-Path $HOME ".gios"
 $BinDir = Join-Path $GiosDir "bin"
 
-Write-Host "--------------------------------------------------" -ForegroundColor Cyan
-Write-Host "   🚀 GIOS - Universal Windows Installer" -ForegroundColor Cyan
+Write-Host ""
+Write-Host " dP`"`"b8 88  dP`"Yb  .dP`"Y8 " -ForegroundColor Cyan
+Write-Host "dP   `"`" 88 dP   Yb ``Ybo.`" " -ForegroundColor Cyan
+Write-Host "Yb  `"88 88 Yb   dP o.``Y8b " -ForegroundColor Cyan
+Write-Host " YboodP 88  YbodP  8bodP' " -ForegroundColor Cyan
+Write-Host ""
+Write-Host "GIOS - Universal Windows Installer" -ForegroundColor White
 Write-Host "--------------------------------------------------" -ForegroundColor Cyan
 
 # Detect Architecture

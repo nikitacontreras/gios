@@ -8,8 +8,13 @@ REPO="nikitacontreras/gios"
 GIOS_DIR="$HOME/.gios"
 BIN_DIR="$GIOS_DIR/bin"
 
-echo "--------------------------------------------------"
-echo "   🚀 GIOS - Universal Installer"
+echo -e "\033[36m\033[1m"
+echo ' dP""b8 88  dP"Yb  .dP"Y8 '
+echo 'dP   `" 88 dP   Yb `Ybo." '
+echo 'Yb  "88 88 Yb   dP o.`Y8b '
+echo " YboodP 88  YbodP  8bodP' "
+echo -e "\033[0m"
+echo "GIOS - Universal Installer"
 echo "--------------------------------------------------"
 
 # Detect OS
