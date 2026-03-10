@@ -24,18 +24,32 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
-          
+
+      - name: Auto Tag Version
+        id: autotag
+        if: github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message, 'chore: bump version')
+        uses: anothrNick/github-tag-action@1.64.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: true
+          DEFAULT_BUMP: patch
+
       - name: Determine Version
         id: version
         run: |
           if [[ $GITHUB_REF == refs/tags/* ]]; then
             TAG=${GITHUB_REF#refs/tags/}
-            echo "VERSION=$TAG" >> $GITHUB_OUTPUT
-            echo "IS_TAG=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.autotag.outputs.new_tag }}" != "" ]]; then
+            TAG=${{ steps.autotag.outputs.new_tag }}
           else
-            SPECIFIC_VERSION=$(git describe --tags --always --match "v*.*.*" 2>/dev/null || echo "latest")
-            echo "VERSION=$SPECIFIC_VERSION" >> $GITHUB_OUTPUT
-            echo "IS_TAG=false" >> $GITHUB_OUTPUT
+            TAG=$(git describe --tags --always --match "v*.*.*" 2>/dev/null || echo "latest")
+          fi
+          echo "VERSION=$TAG" >> $GITHUB_OUTPUT
+          
+          if [[ $GITHUB_REF == refs/tags/* ]] || [[ "${{ steps.autotag.outputs.new_tag }}" != "" ]]; then
+            echo "IS_RELEASE=true" >> $GITHUB_OUTPUT
+          else
+            echo "IS_RELEASE=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Build Binaries and Generate Manifest
@@ -43,17 +57,19 @@ jobs:
           make build-all VERSION=${{ steps.version.outputs.VERSION }}
           make release-manifest VERSION=${{ steps.version.outputs.VERSION }}
 
-      - name: Create Tagged Release
+      - name: Create Versioned Release
         uses: softprops/action-gh-release@v2
-        if: steps.version.outputs.IS_TAG == 'true'
+        if: steps.version.outputs.IS_RELEASE == 'true'
         with:
           files: build/*
           tag_name: ${{ steps.version.outputs.VERSION }}
+          name: Release ${{ steps.version.outputs.VERSION }}
           generate_release_notes: true
+          make_latest: true
           
-      - name: Update Nightly Release
+      - name: Update Nightly Release (Non-Main)
         uses: softprops/action-gh-release@v2
-        if: steps.version.outputs.IS_TAG == 'false' && github.ref == 'refs/heads/main'
+        if: steps.version.outputs.IS_RELEASE == 'false'
         with:
           name: "Nightly Build (${{ steps.version.outputs.VERSION }})"
           tag_name: latest
