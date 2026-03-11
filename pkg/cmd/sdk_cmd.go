@@ -172,8 +172,16 @@ var addSDKCmd = &cobra.Command{
 				continue
 			}
 
-			fmt.Printf("\n%s[gios]%s Pre-flight check: %s successful.\n", cyanStyle.Render(""), "", selectedSDK.Name)
-			err := sdk.EnsureSDKFromURL(selectedSDK.Name, targetPath, selectedSDK.URL)
+			fmt.Printf("\n%s[gios]%s Pre-flight check: %s...", cyanStyle.Render(""), "", selectedSDK.Name)
+			
+			if err := sdk.ValidateRemoteURL(selectedSDK.URL); err != nil {
+				fmt.Printf(" %sFAILED%s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true).Render(""), "")
+				fmt.Printf("[!] Error: %v\n", err)
+				continue
+			}
+			fmt.Printf(" %sSUCCESS%s\n", successColor.Render(""), "")
+
+			err := sdk.EnsureSDKFromURL(selectedSDK.Name, targetPath, selectedSDK.URL, selectedSDK.Hash)
 			if err != nil {
 				fmt.Printf("[!] Download Error: %v\n", err)
 			} else {

@@ -1,6 +1,8 @@
 package sdk
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,7 +35,7 @@ func GetDownloadedSDKs() []string {
 		return downloaded
 	}
 	for _, f := range files {
-		if f.IsDir() && strings.HasPrefix(f.Name(), "iPhoneOS") {
+		if f.IsDir() && strings.HasSuffix(f.Name(), ".sdk") {
 			downloaded = append(downloaded, f.Name())
 		}
 	}
@@ -137,7 +139,7 @@ func EnsureSDK(version, targetPath string) error {
 	if selected == nil {
 		return fmt.Errorf("SDK version %s not found in manifest", version)
 	}
-	return EnsureSDKFromURL(selected.Name, targetPath, selected.URL)
+	return EnsureSDKFromURL(selected.Name, targetPath, selected.URL, selected.Hash)
 }
 
 func DownloadURLToFile(url, targetPath string, showProgress bool) error {
@@ -175,7 +177,26 @@ func DownloadURLToFile(url, targetPath string, showProgress bool) error {
 	return err
 }
 
-func EnsureSDKFromURL(version, targetPath, customUrl string) error {
+func VerifyMD5(filePath, expectedHash string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+
+	actualHash := hex.EncodeToString(h.Sum(nil))
+	if actualHash != expectedHash {
+		return fmt.Errorf("hash mismatch: expected %s, got %s", expectedHash, actualHash)
+	}
+	return nil
+}
+
+func EnsureSDKFromURL(version, targetPath, customUrl, expectedHash string) error {
 	sdkDir := filepath.Dir(targetPath)
 	os.MkdirAll(sdkDir, 0755)
 
@@ -184,6 +205,15 @@ func EnsureSDKFromURL(version, targetPath, customUrl string) error {
 
 	if err := DownloadURLToFile(customUrl, tarPath, true); err != nil {
 		return fmt.Errorf("download failed: %v", err)
+	}
+
+	// Verify Hash if provided
+	if expectedHash != "" {
+		fmt.Printf("[gios] Verifying integrity...\n")
+		if err := VerifyMD5(tarPath, expectedHash); err != nil {
+			os.Remove(tarPath)
+			return err
+		}
 	}
 
 	fmt.Printf("[gios] Extracting SDK: %s...\n", version)
@@ -198,7 +228,15 @@ func EnsureSDKFromURL(version, targetPath, customUrl string) error {
 	}
 
 	if err := exec.Command(extractCmd, extractArgs...).Run(); err != nil {
+		os.RemoveAll(targetPath)
 		return fmt.Errorf("extraction failed: %v", err)
+	}
+
+	// Validate extraction (check if dir is not empty)
+	files, _ := ioutil.ReadDir(targetPath)
+	if len(files) == 0 {
+		os.RemoveAll(targetPath)
+		return fmt.Errorf("extraction succeeded but target directory is empty")
 	}
 
 	// Removal of tarball
@@ -245,4 +283,18 @@ func GetLatestTag(repo string) (string, error) {
 		return "", err
 	}
 	return release.TagName, nil
+}
+
+func ValidateRemoteURL(url string) error {
+	escapedURL := strings.ReplaceAll(url, " ", "%20")
+	resp, err := http.Head(escapedURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("remote asset not found (HTTP %d)", resp.StatusCode)
+	}
+	return nil
 }
