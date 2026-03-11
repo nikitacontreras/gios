@@ -18,7 +18,7 @@ var updateCmd = &cobra.Command{
 		fmt.Printf("%s[gios]%s Checking for updates...\n", utils.ColorCyan, utils.ColorReset)
 
 		repo := "nikitacontreras/gios"
-		latestTag, err := sdk.GetLatestTag(repo)
+		latestTag, tagErr := sdk.GetLatestTag(repo)
 		currentVersion := cmd.Root().Version
 
 		// Helper to normalize version strings (strip 'v' prefix)
@@ -49,12 +49,12 @@ var updateCmd = &cobra.Command{
 				return
 			}
 		} else {
-			if err == nil && normalize(latestTag) == normalize(currentVersion) {
+			if tagErr == nil && normalize(latestTag) == normalize(currentVersion) {
 				fmt.Printf("%s[gios]%s GIOS is already up to date (%s).\n", utils.ColorGreen, utils.ColorReset, currentVersion)
 				return
 			}
 
-			if err == nil {
+			if tagErr == nil {
 				fmt.Printf("%s[gios]%s New version available: %s (Current: %s)\n", utils.ColorCyan, utils.ColorReset, latestTag, currentVersion)
 			}
 
