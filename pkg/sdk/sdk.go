@@ -44,42 +44,19 @@ func GetDownloadedSDKs() []string {
 
 func FetchAvailableSDKs() ([]SDKInfo, error) {
 	manifest, err := FetchAssetManifest()
-	var sdkList []SDKInfo
-
 	if err != nil {
-		// Legacy fallback if gios-platform-assets fails
-		req, _ := http.NewRequest("GET", "https://api.github.com/repos/theos/sdks/releases/latest", nil)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
+		return nil, fmt.Errorf("could not fetch manifest from %s: %v", RemoteAssetsURL, err)
+	}
 
-		if resp.StatusCode == http.StatusOK {
-			var release struct{ Assets []struct{ Name, BrowserDownloadURL string } `json:"assets"` }
-			json.NewDecoder(resp.Body).Decode(&release)
-			for _, asset := range release.Assets {
-				if strings.HasSuffix(asset.Name, ".tar.xz") || strings.HasSuffix(asset.Name, ".tar.gz") {
-					name := strings.TrimSuffix(strings.TrimSuffix(asset.Name, ".tar.xz"), ".tar.gz")
-					sdkList = append(sdkList, SDKInfo{
-						Name:     name,
-						URL:      asset.BrowserDownloadURL,
-						Platform: "iOS",
-						Version:  name,
-					})
-				}
-			}
-		}
-	} else {
-		for _, sdk := range manifest.SDKs {
-			sdkList = append(sdkList, SDKInfo{
-				Name:     sdk.Name,
-				URL:      sdk.URL,
-				Platform: sdk.Platform,
-				Hash:     sdk.Hash,
-				Version:  sdk.Name,
-			})
-		}
+	var sdkList []SDKInfo
+	for _, sdk := range manifest.SDKs {
+		sdkList = append(sdkList, SDKInfo{
+			Name:     sdk.Name,
+			URL:      sdk.URL,
+			Platform: sdk.Platform,
+			Hash:     sdk.Hash,
+			Version:  sdk.Name,
+		})
 	}
 
 	return sdkList, nil
@@ -250,6 +227,10 @@ func FetchAssetManifest() (*config.PlatformAssets, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bad status from manifest server: %s", resp.Status)
+	}
 
 	var manifest config.PlatformAssets
 	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
