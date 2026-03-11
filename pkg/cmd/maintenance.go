@@ -16,10 +16,20 @@ var updateCmd = &cobra.Command{
 	Short: "Pull the latest version of GIOS from GitHub and rebuild",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("%s[gios]%s Checking for updates...\n", utils.ColorCyan, utils.ColorReset)
+
+		repo := "nikitacontreras/gios"
+		latestTag, err := sdk.GetLatestTag(repo)
+		currentVersion := cmd.Root().Version
+
+		// Helper to normalize version strings (strip 'v' prefix)
+		normalize := func(v string) string {
+			return strings.TrimPrefix(v, "v")
+		}
+
 		// Check if we are in a git repo
 		if _, err := os.Stat(".git"); err == nil {
 			fmt.Printf("%s[gios]%s Git repository detected. Pulling updates...\n", utils.ColorCyan, utils.ColorReset)
-			
+
 			// 1. Pull
 			pull := exec.Command("git", "pull")
 			pull.Stdout = os.Stdout
@@ -39,10 +49,18 @@ var updateCmd = &cobra.Command{
 				return
 			}
 		} else {
+			if err == nil && normalize(latestTag) == normalize(currentVersion) {
+				fmt.Printf("%s[gios]%s GIOS is already up to date (%s).\n", utils.ColorGreen, utils.ColorReset, currentVersion)
+				return
+			}
+
+			if err == nil {
+				fmt.Printf("%s[gios]%s New version available: %s (Current: %s)\n", utils.ColorCyan, utils.ColorReset, latestTag, currentVersion)
+			}
+
 			fmt.Printf("%s[gios]%s Binary installation detected. Fetching latest release...\n", utils.ColorCyan, utils.ColorReset)
-			
+
 			target := utils.GetTargetString()
-			repo := "nikitacontreras/gios"
 			downloadURL := fmt.Sprintf("https://github.com/%s/releases/latest/download/gios-%s", repo, target)
 			if strings.Contains(target, "windows") {
 				downloadURL += ".exe"
@@ -66,7 +84,7 @@ var updateCmd = &cobra.Command{
 				os.Rename(oldPath, selfPath) // Restore
 				return
 			}
-			
+
 			os.Chmod(selfPath, 0755)
 			os.Remove(oldPath)
 		}

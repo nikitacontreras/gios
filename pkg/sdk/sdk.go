@@ -219,3 +219,30 @@ func FetchAssetManifest() (*config.PlatformAssets, error) {
 	}
 	return &manifest, nil
 }
+
+func GetLatestTag(repo string) (string, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo), nil)
+	if err != nil {
+		return "", err
+	}
+	// Add user-agent to avoid 403 from GitHub API in some environments
+	req.Header.Set("User-Agent", "gios-cli")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("github api returned %s", resp.Status)
+	}
+
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", err
+	}
+	return release.TagName, nil
+}
