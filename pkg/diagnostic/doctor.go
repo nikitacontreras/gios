@@ -113,7 +113,9 @@ func RunDoctor(fix bool) {
 	}
 
 	fmt.Print("Checking dpkg (packaging)... ")
-	if _, err := exec.LookPath("dpkg-deb"); err != nil {
+	if runtime.GOOS == "windows" {
+		fmt.Printf("%sOK%s (Using GIOS Native Packager)\n", utils.ColorGreen, utils.ColorReset)
+	} else if _, err := exec.LookPath("dpkg-deb"); err != nil {
 		if fix && runtime.GOOS == "darwin" {
 			fmt.Printf("%sAUTO-FIXING%s (brew install dpkg)\n", utils.ColorYellow, utils.ColorReset)
 			exec.Command("brew", "install", "dpkg").Run()
@@ -134,6 +136,9 @@ func RunDoctor(fix bool) {
 	} else {
 		if runtime.GOOS == "darwin" {
 			fmt.Printf("%sRUNNING%s (macOS native)\n", utils.ColorGreen, utils.ColorReset)
+		} else if runtime.GOOS == "windows" {
+			fmt.Printf("%sNOT FOUND%s (Install iTunes or Apple Devices app from Store)\n", utils.ColorRed, utils.ColorReset)
+			errors++
 		} else {
 			fmt.Printf("%sNOT FOUND%s (Ensure usbmuxd daemon is running)\n", utils.ColorRed, utils.ColorReset)
 			errors++

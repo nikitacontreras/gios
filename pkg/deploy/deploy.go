@@ -176,24 +176,26 @@ func CreateDeb(unsafeFlag bool) {
 		}
 		os.MkdirAll(tweakDir, 0755)
 		
-		exec.Command("cp", conf.Output, filepath.Join(tweakDir, conf.Output)).Run()
+		inputData, _ := os.ReadFile(conf.Output)
+		os.WriteFile(filepath.Join(tweakDir, conf.Output), inputData, 0755)
 		
 		plistName := strings.TrimSuffix(conf.Output, ".dylib") + ".plist"
 		if _, err := os.Stat("filter.plist"); err == nil {
-			exec.Command("cp", "filter.plist", filepath.Join(tweakDir, plistName)).Run()
+			plistData, _ := os.ReadFile("filter.plist")
+			os.WriteFile(filepath.Join(tweakDir, plistName), plistData, 0644)
 		} else {
 			plistContent := `{"Filter":{"Bundles":["com.apple.springboard"]}}`
-			ioutil.WriteFile(filepath.Join(tweakDir, plistName), []byte(plistContent), 0644)
+			os.WriteFile(filepath.Join(tweakDir, plistName), []byte(plistContent), 0644)
 		}
 	} else {
-		exec.Command("cp", conf.Output, filepath.Join(binPath, conf.Output)).Run()
-		os.Chmod(filepath.Join(binPath, conf.Output), 0755)
+		inputData, _ := os.ReadFile(conf.Output)
+		os.WriteFile(filepath.Join(binPath, conf.Output), inputData, 0755)
 	}
 
 	debArch := conf.Arch
 	control := fmt.Sprintf("Package: %s\nName: %s\nVersion: %s\nArchitecture: %s\nDescription: App created with Gios\nMaintainer: Gios User\nAuthor: Gios\nSection: Utilities\n",
 		pkgID, conf.Name, version, debArch)
-	ioutil.WriteFile(filepath.Join(debianDir, "control"), []byte(control), 0644)
+	os.WriteFile(filepath.Join(debianDir, "control"), []byte(control), 0644)
 
 	if conf.Daemon {
 		var daemonDir string
@@ -230,12 +232,18 @@ func CreateDeb(unsafeFlag bool) {
 	<string>/var/log/%s.log</string>
 </dict>
 </plist>`, pkgID, plistOutputTarget, pkgID, pkgID)
-		ioutil.WriteFile(filepath.Join(daemonDir, plistName), []byte(plistContent), 0644)
+		os.WriteFile(filepath.Join(daemonDir, plistName), []byte(plistContent), 0644)
 	}
 
 	debName := fmt.Sprintf("%s_%s_%s.deb", conf.Name, version, debArch)
-	exec.Command("dpkg-deb", "-b", stage, debName).Run()
-	fmt.Printf("[gios] Created package: %s\n", debName)
+	
+	// Use our internal Go-native creator instead of exec("dpkg-deb")
+	err = InternalDebCreator(stage, debName)
+	if err != nil {
+		fmt.Printf("[!] Packaging Error: %v\n", err)
+		return
+	}
+	fmt.Printf("[gios] Created package: %s (Native Go Packager)\n", debName)
 }
 
 func InstallDeb(unsafeFlag bool) {
