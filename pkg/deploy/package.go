@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/nikitastrike/gios/pkg/config"
 )
 
 // InternalDebCreator implements a pure-Go debian packager to avoid dependency on 'dpkg-deb'

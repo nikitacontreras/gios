@@ -238,7 +238,7 @@ func CreateDeb(unsafeFlag bool) {
 	debName := fmt.Sprintf("%s_%s_%s.deb", conf.Name, version, debArch)
 	
 	// Use our internal Go-native creator instead of exec("dpkg-deb")
-	err = InternalDebCreator(stage, debName)
+	err := InternalDebCreator(stage, debName)
 	if err != nil {
 		fmt.Printf("[!] Packaging Error: %v\n", err)
 		return
