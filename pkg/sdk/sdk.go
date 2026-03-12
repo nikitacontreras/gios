@@ -228,14 +228,24 @@ func EnsureSDKFromURL(version, targetPath, customUrl, expectedHash string) error
 	
 	// Determine extraction based on extension
 	extractCmd := "tar"
-	extractArgs := []string{"-xf", tarPath, "-C", targetPath, "--strip-components=1"}
-	if strings.Contains(fileName, ".gz") {
+	// Normalize paths to forward slashes for better tar compatibility across platforms
+	safeTarPath := filepath.ToSlash(tarPath)
+	safeTargetPath := filepath.ToSlash(targetPath)
+	
+	extractArgs := []string{"-xf", safeTarPath, "-C", safeTargetPath, "--strip-components=1"}
+	if strings.HasSuffix(fileName, ".gz") || strings.HasSuffix(fileName, ".tgz") {
 		extractArgs = append([]string{"-z"}, extractArgs...)
+	} else if strings.HasSuffix(fileName, ".xz") {
+		extractArgs = append([]string{"-J"}, extractArgs...)
 	}
 
-	if err := exec.Command(extractCmd, extractArgs...).Run(); err != nil {
+	cmd := exec.Command(extractCmd, extractArgs...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
 		os.RemoveAll(targetPath)
-		return fmt.Errorf("extraction failed: %v", err)
+		return fmt.Errorf("extraction failed (exit status %v). Output: %s", err, stderr.String())
 	}
 
 	// Validate extraction (check if dir is not empty)
