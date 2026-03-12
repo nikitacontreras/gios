@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"archive/tar"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -9,9 +10,10 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/ulikunitz/xz"
 
 	"github.com/nikitastrike/gios/pkg/config"
 	"github.com/nikitastrike/gios/pkg/utils"
@@ -226,26 +228,69 @@ func EnsureSDKFromURL(version, targetPath, customUrl, expectedHash string) error
 	os.RemoveAll(targetPath)
 	os.MkdirAll(targetPath, 0755)
 	
-	// Determine extraction based on extension
-	extractCmd := "tar"
-	// Normalize paths to forward slashes for better tar compatibility across platforms
-	safeTarPath := filepath.ToSlash(tarPath)
-	safeTargetPath := filepath.ToSlash(targetPath)
+	fmt.Printf("[gios] Unpacking archive (Native Go Extractor)...\n")
 	
-	extractArgs := []string{"-xf", safeTarPath, "-C", safeTargetPath, "--strip-components=1"}
-	if strings.HasSuffix(fileName, ".gz") || strings.HasSuffix(fileName, ".tgz") {
-		extractArgs = append([]string{"-z"}, extractArgs...)
-	} else if strings.HasSuffix(fileName, ".xz") {
-		extractArgs = append([]string{"-J"}, extractArgs...)
+	f, err := os.Open(tarPath)
+	if err != nil {
+		return fmt.Errorf("failed to open archive: %v", err)
+	}
+	defer f.Close()
+
+	// 1. Descomprimir XZ
+	xzReader, err := xz.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("failed to initialize xz reader: %v", err)
 	}
 
-	cmd := exec.Command(extractCmd, extractArgs...)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
+	// 2. Leer TAR
+	tr := tar.NewReader(xzReader)
+	
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("error reading tar: %v", err)
+		}
 
-	if err := cmd.Run(); err != nil {
-		os.RemoveAll(targetPath)
-		return fmt.Errorf("extraction failed (exit status %v). Output: %s", err, stderr.String())
+		// Implementar --strip-components=1 logic
+		parts := strings.Split(filepath.ToSlash(header.Name), "/")
+		if len(parts) <= 1 {
+			continue // Saltamos la carpeta raíz misma
+		}
+		
+		relPath := filepath.Join(parts[1:]...)
+		target := filepath.Join(targetPath, relPath)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %v", target, err)
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return fmt.Errorf("failed to create parent dir for %s: %v", target, err)
+			}
+			
+			outFile, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+			if err != nil {
+				return fmt.Errorf("failed to create file %s: %v", target, err)
+			}
+			if _, err := io.Copy(outFile, tr); err != nil {
+				outFile.Close()
+				return fmt.Errorf("failed to write file %s: %v", target, err)
+			}
+			outFile.Close()
+		case tar.TypeSymlink:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return fmt.Errorf("failed to create parent dir for symlink %s: %v", target, err)
+			}
+			_ = os.Remove(target)
+			if err := os.Symlink(header.Linkname, target); err != nil {
+				fmt.Printf("[!] Warning: Could not create symlink %s -> %s: %v\n", target, header.Linkname, err)
+			}
+		}
 	}
 
 	// Validate extraction (check if dir is not empty)
