@@ -10,6 +10,8 @@ require (
 	golang.org/x/crypto v0.48.0
 )
 
+require github.com/ulikunitz/xz v0.5.15
+
 require (
 	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
