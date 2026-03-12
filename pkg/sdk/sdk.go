@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/nikitastrike/gios/pkg/config"
+	"github.com/nikitastrike/gios/pkg/utils"
 	"github.com/schollz/progressbar/v3"
 )
 
