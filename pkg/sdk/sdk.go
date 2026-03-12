@@ -177,24 +177,52 @@ func EnsureSDKFromURL(version, targetPath, customUrl, expectedHash string) error
 	sdkDir := filepath.Dir(targetPath)
 	os.MkdirAll(sdkDir, 0755)
 
-	fileName := filepath.Base(customUrl)
-	tarPath := filepath.Join(sdkDir, fileName)
-
-	if err := DownloadURLToFile(customUrl, tarPath, true); err != nil {
-		return fmt.Errorf("download failed: %v", err)
-	}
-
-	// Verify Hash if provided
+	// 1. Check if already installed and hash matches
+	hashFile := filepath.Join(targetPath, ".md5")
 	if expectedHash != "" {
-		fmt.Printf("[gios] Verifying integrity...\n")
-		if err := VerifyMD5(tarPath, expectedHash); err != nil {
-			os.Remove(tarPath)
-			return err
+		if storedHash, err := ioutil.ReadFile(hashFile); err == nil {
+			if strings.TrimSpace(string(storedHash)) == expectedHash {
+				fmt.Printf("%s[gios]%s SDK %s is already installed and verified.\n", utils.ColorGreen, utils.ColorReset, version)
+				return nil // Matches, no need to do anything
+			}
+		}
+	} else {
+		// Fallback: if no hash provided, check if folder exists
+		if _, err := os.Stat(targetPath); err == nil {
+			fmt.Printf("%s[gios]%s SDK %s is already installed.\n", utils.ColorGreen, utils.ColorReset, version)
+			return nil
 		}
 	}
 
-	fmt.Printf("[gios] Extracting SDK: %s...\n", version)
-	// Create target dir
+	fileName := filepath.Base(customUrl)
+	tarPath := filepath.Join(sdkDir, fileName)
+
+	// Download only if needed (check if file exists and matches hash)
+	needDownload := true
+	if _, err := os.Stat(tarPath); err == nil && expectedHash != "" {
+		if VerifyMD5(tarPath, expectedHash) == nil {
+			needDownload = false
+			fmt.Printf("[gios] Existing archive %s matches hash, skipping download.\n", fileName)
+		}
+	}
+
+	if needDownload {
+		if err := DownloadURLToFile(customUrl, tarPath, true); err != nil {
+			return fmt.Errorf("download failed: %v", err)
+		}
+		// Verify Hash if provided
+		if expectedHash != "" {
+			fmt.Printf("[gios] Verifying integrity...\n")
+			if err := VerifyMD5(tarPath, expectedHash); err != nil {
+				os.Remove(tarPath)
+				return err
+			}
+		}
+	}
+
+	fmt.Printf("[gios] Installing SDK: %s...\n", version)
+	// Preparar target dir (limpiar si existe pero no coincidía el hash)
+	os.RemoveAll(targetPath)
 	os.MkdirAll(targetPath, 0755)
 	
 	// Determine extraction based on extension
@@ -214,6 +242,11 @@ func EnsureSDKFromURL(version, targetPath, customUrl, expectedHash string) error
 	if len(files) == 0 {
 		os.RemoveAll(targetPath)
 		return fmt.Errorf("extraction succeeded but target directory is empty")
+	}
+
+	// Save hash for future skip
+	if expectedHash != "" {
+		ioutil.WriteFile(hashFile, []byte(expectedHash), 0644)
 	}
 
 	// Removal of tarball

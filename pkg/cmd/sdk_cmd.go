@@ -166,11 +166,6 @@ var addSDKCmd = &cobra.Command{
 		for i := range fm.selected {
 			selectedSDK := fm.choices[i]
 			targetPath := filepath.Join(config.GiosDir, "sdks", selectedSDK.Name)
-			
-			if _, err := os.Stat(targetPath); err == nil {
-				fmt.Printf("[!] SDK %s is already installed.\n", selectedSDK.Name)
-				continue
-			}
 
 			fmt.Printf("\n%s[gios]%s Pre-flight check: %s...", cyanStyle.Render(""), "", selectedSDK.Name)
 			
