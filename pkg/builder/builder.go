@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nikitastrike/gios/pkg/codesign"
 	"github.com/nikitastrike/gios/pkg/config"
 	"github.com/nikitastrike/gios/pkg/sdk"
 	"github.com/nikitastrike/gios/pkg/transpiler"
@@ -157,16 +158,23 @@ func Build(unsafeFlag bool) {
 		utils.DrawProgress("Compiling", 70)
 	}
 
-	if _, err := exec.LookPath("ldid"); err == nil {
-		utils.DrawProgress("Signing", 85)
-		var signCmd *exec.Cmd
-		if conf.Entitlements != "" && conf.Entitlements != "none" {
-			signCmd = exec.Command("ldid", "-S"+conf.Entitlements, conf.Output)
+	utils.DrawProgress("Signing", 85)
+	var entitlements string
+	if conf.Entitlements != "" && conf.Entitlements != "none" {
+		data, err := os.ReadFile(conf.Entitlements)
+		if err == nil {
+			entitlements = string(data)
 		} else {
-			signCmd = exec.Command("ldid", "-S", conf.Output)
+			fmt.Printf("\n[!] Warning: Could not read entitlements file: %v\n", err)
 		}
-		signCmd.CombinedOutput()
 	}
+
+	if err := codesign.Sign(conf.Output, entitlements); err != nil {
+		// Only show warning if it's not "LC_CODE_SIGNATURE not found" which is common for some build modes.
+		// Actually, we'd like to know if it fails.
+		fmt.Printf("\n[!] Code Signing Warning: %v\n", err)
+	}
+
 	utils.DrawProgress("Ready!", 100)
 }
 

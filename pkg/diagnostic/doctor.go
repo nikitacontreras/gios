@@ -99,18 +99,8 @@ func RunDoctor(fix bool) {
 		fmt.Printf("%sOK%s\n", utils.ColorGreen, utils.ColorReset)
 	}
 
-	fmt.Print("Checking ldid... ")
-	if _, err := exec.LookPath("ldid"); err != nil {
-		if fix && runtime.GOOS == "darwin" {
-			fmt.Printf("%sAUTO-FIXING%s (brew install ldid)\n", utils.ColorYellow, utils.ColorReset)
-			exec.Command("brew", "install", "ldid").Run()
-		} else {
-			fmt.Printf("%sNOT FOUND%s (Only needed for local fakesigning)\n", utils.ColorYellow, utils.ColorReset)
-			warnings++
-		}
-	} else {
-		fmt.Printf("%sOK%s\n", utils.ColorGreen, utils.ColorReset)
-	}
+	fmt.Printf("Checking ldid... %sOK%s (Built-in)\n", utils.ColorGreen, utils.ColorReset)
+
 
 	fmt.Print("Checking dpkg (packaging)... ")
 	if runtime.GOOS == "windows" {

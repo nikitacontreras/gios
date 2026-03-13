@@ -13,6 +13,14 @@ require (
 require github.com/ulikunitz/xz v0.5.15
 
 require (
+	github.com/aluedeke/go-codesign v0.0.6 // indirect
+	github.com/blacktop/go-dwarf v1.0.14 // indirect
+	github.com/blacktop/go-macho v1.1.258 // indirect
+	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
+)
+
+require (
 	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -44,7 +52,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	go.mozilla.org/pkcs7 v0.0.0-20210826202110-33d05740a352 // indirect
+	go.mozilla.org/pkcs7 v0.9.0 // indirect
 	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
@@ -52,6 +60,6 @@ require (
 	golang.org/x/term v0.40.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect
-	howett.net/plist v0.0.0-20200419221736-3b63eb3a43b5 // indirect
-	software.sslmate.com/src/go-pkcs12 v0.2.0 // indirect
+	howett.net/plist v1.0.1 // indirect
+	software.sslmate.com/src/go-pkcs12 v0.7.0 // indirect
 )
